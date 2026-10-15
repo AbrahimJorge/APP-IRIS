@@ -1,0 +1,74 @@
+import ctypes
+try:
+    # Ativa Per-Monitor DPI Aware logo no início do processo:
+    # Garante proporções nítidas e sincronia 1:1 absoluta com as coordenadas do mouse (pynput e MSS)
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)
+except Exception:
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+import flet as ft
+from theme import COLOR_BG
+from views.home_view import HomeView
+from views.camera_view import CameraView
+from views.image_view import ImageView
+from views.settings_view import SettingsView
+from views.daltonism_test_view import DaltonismTestView
+
+
+def main(page: ft.Page):
+    # Configurações gerais da página e janela
+    page.title = "IRIS - Identificador de Cores"
+    page.theme_mode = ft.ThemeMode.LIGHT
+    page.bgcolor = COLOR_BG
+
+    # Dimensões da janela (estilo mobile moderno)
+    page.window.width = 415
+    page.window.height = 860
+    page.window.min_width = 360
+    page.window.min_height = 680
+
+    def route_change(e=None):
+        page.views.clear()
+
+        # Adiciona a tela principal como base
+        page.views.append(HomeView(page))
+
+        # Roteamento para as telas secundárias
+        if page.route == "/camera":
+            page.views.append(CameraView(page))
+        elif page.route == "/image":
+            page.views.append(ImageView(page))
+        elif page.route == "/settings":
+            page.views.append(SettingsView(page))
+        elif page.route == "/daltonism_test":
+            page.views.append(DaltonismTestView(page))
+
+        page.update()
+
+    def view_pop(e: ft.ViewPopEvent):
+        if len(page.views) > 1:
+            page.views.pop()
+            top_view = page.views[-1]
+            page.navigate(top_view.route)
+
+    def on_app_close(e=None):
+        try:
+            from services.screen_service import ScreenFloatingService
+            ScreenFloatingService.get_instance().shutdown()
+        except Exception:
+            pass
+
+    page.on_route_change = route_change
+    page.on_view_pop = view_pop
+    page.on_disconnect = on_app_close
+    page.on_close = on_app_close
+
+    # Carrega a visualização inicial
+    route_change()
+
+
+if __name__ == "__main__":
+    ft.run(main, assets_dir="assets")
