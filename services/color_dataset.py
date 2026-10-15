@@ -3,10 +3,8 @@ import colorsys
 import ssl
 import pandas as pd
 from scipy.spatial import KDTree
-
-CSV_PATH = os.path.join(os.path.dirname(__file__), "..", "assets", "colors.csv")
-GITHUB_URL = "https://raw.githubusercontent.com/codebrainz/color-names/master/output/colors.csv"
-
+from services.i18n_service import I18nService
+from services.constants.dataset_constants import *
 
 class ColorDatasetService:
     _instance = None
@@ -45,7 +43,7 @@ class ColorDatasetService:
     def get_closest_color_name(self, r: int, g: int, b: int) -> str:
         """Retorna o nome específico da cor mais próxima pelo KDTree."""
         if not self.tree:
-            return "Desconhecido"
+            return I18nService.get_instance().t("color_unknown", "Desconhecido")
         _, index = self.tree.query((r, g, b))
         return self.names[index]
 
@@ -71,14 +69,13 @@ class ColorDatasetService:
 
         # Neutros
         if l < 0.15:
-            return "Preto", detail, hex_code
-        if l > 0.88 and s < 0.20:
-            return "Branco", detail, hex_code
-        if s < 0.15:
-            return "Cinza", detail, hex_code
-
+            family = "Preto"
+        elif l > 0.88 and s < 0.20:
+            family = "Branco"
+        elif s < 0.15:
+            family = "Cinza"
         # Famílias cromáticas pelo Matiz (Hue)
-        if h_deg < 15 or h_deg >= 345:
+        elif h_deg < 15 or h_deg >= 345:
             family = "Vermelho"
         elif h_deg < 45:
             family = "Marrom" if (l < 0.40 and s > 0.20) else "Laranja"
@@ -95,4 +92,5 @@ class ColorDatasetService:
         else:
             family = "Rosa"
 
+        family = I18nService.get_instance().translate_color(family)
         return family, detail, hex_code

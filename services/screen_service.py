@@ -6,6 +6,8 @@ from PIL import Image, ImageTk
 import numpy as np
 from pynput import mouse
 from services.color_dataset import ColorDatasetService
+from services.i18n_service import I18nService
+from services.constants.screen_constants import *
 
 # Garante DPI Aware (Per-Monitor v2/v1) antes de qualquer janela ser criada:
 # Assegura que coordenadas físicas do mouse (pynput), Tkinter e MSS sejam rigorosamente 1:1,
@@ -26,9 +28,6 @@ def _make_window_click_through(win):
         hwnd = ctypes.windll.user32.GetParent(win.winfo_id())
         if not hwnd:
             hwnd = win.winfo_id()
-        GWL_EXSTYLE = -20
-        WS_EX_TRANSPARENT = 0x00000020
-        WS_EX_LAYERED = 0x00080000
         style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
         ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_TRANSPARENT | WS_EX_LAYERED)
     except Exception:
@@ -85,16 +84,20 @@ class ScreenFloatingService:
 
         # Proporções elegantes e fixas
         self.btn_size = 56
-        self.opt_w = 260
+        self.opt_w = 280
         self.opt_h = 178
         self.pill_w = 248
         self.pill_h = 60
         self.ret_size = 32
 
+        # Internacionalização (I18n)
+        self.i18n = I18nService.get_instance()
+        self.i18n.add_listener(self._on_language_changed)
+
         # Dados da cor atual identificada
         self.current_hex = "#1D5CD4"
-        self.current_name = "Aguardando clique"
-        self.current_detail = "Toque em um ponto da tela"
+        self.current_name = self.i18n.t("waiting_click")
+        self.current_detail = self.i18n.t("waiting_click_desc")
 
         # Cores da área selecionada (modo seleção)
         self.area_colors = []
@@ -120,6 +123,10 @@ class ScreenFloatingService:
     def start(self, on_status_change=None):
         """Ativa o menu flutuante suspenso."""
         self.on_status_change = on_status_change
+
+        if self.current_name in ("Aguardando clique", "Waiting for click", ""):
+            self.current_name = self.i18n.t("waiting_click")
+            self.current_detail = self.i18n.t("waiting_click_desc")
 
         if self.root is None:
             self.is_running = True
@@ -190,6 +197,32 @@ class ScreenFloatingService:
             self.btn_win.attributes("-alpha", 0.75)
             self.btn_win.deiconify()
             self.btn_win.lift()
+
+    def _on_language_changed(self, lang):
+        """Atualiza os textos das janelas do menu flutuante ao mudar de idioma."""
+        if self.current_name in ("Aguardando clique", "Waiting for click", ""):
+            self.current_name = self.i18n.t("waiting_click")
+            self.current_detail = self.i18n.t("waiting_click_desc")
+        elif self.mode == "selecao" and not self.area_colors:
+            self.current_name = self.i18n.t("waiting_select")
+            self.current_detail = self.i18n.t("waiting_select_desc")
+        else:
+            self.current_name = self.i18n.translate_color(self.current_name)
+
+        if self.root:
+            def _update_ui():
+                try:
+                    if self.options_win and self.options_win.winfo_exists():
+                        self._render_options_card()
+                    if self.pill_win and self.pill_win.winfo_exists():
+                        self._render_pill_card()
+                except Exception as ex:
+                    print(f"Erro ao atualizar UI do menu flutuante: {ex}")
+
+            try:
+                self.root.after(0, _update_ui)
+            except Exception:
+                pass
 
     def _hide_all_windows(self):
         """Oculta todas as janelas na thread do Tkinter."""
@@ -379,69 +412,104 @@ class ScreenFloatingService:
     def _render_options_card(self):
         self.opt_canvas.delete("all")
 
+        is_clique_active = self.mode == "clique"
+        is_sel_active = self.mode == "selecao"
+
+        self.opt_w = 280
+
+        title1 = self.i18n.t("tab_clique") + (self.i18n.t("active_badge") if is_clique_active else "")
+        desc1 = self.i18n.t("opt_clique_desc")
+        title2 = self.i18n.t("tab_selecao") + (self.i18n.t("active_badge") if is_sel_active else "")
+        desc2 = self.i18n.t("opt_selecao_desc")
+
+        f_title = ("Segoe UI", 10, "bold")
+        f_desc = ("Segoe UI", 8)
+        text_w = self.opt_w - 76
+
+        # Medição prévia das alturas dos textos para calcular altura responsiva exata
+        t1_temp = self.opt_canvas.create_text(62, 10, text=title1, font=f_title, anchor="nw")
+        t1_box = self.opt_canvas.bbox(t1_temp)
+        t1_h = (t1_box[3] - t1_box[1]) if t1_box else 18
+
+        d1_temp = self.opt_canvas.create_text(62, 10 + t1_h + 3, text=desc1, font=f_desc, anchor="nw", width=text_w)
+        d1_box = self.opt_canvas.bbox(d1_temp)
+        d1_h = (d1_box[3] - d1_box[1]) if d1_box else 14
+
+        t2_temp = self.opt_canvas.create_text(62, 10, text=title2, font=f_title, anchor="nw")
+        t2_box = self.opt_canvas.bbox(t2_temp)
+        t2_h = (t2_box[3] - t2_box[1]) if t2_box else 18
+
+        d2_temp = self.opt_canvas.create_text(62, 10 + t2_h + 3, text=desc2, font=f_desc, anchor="nw", width=text_w)
+        d2_box = self.opt_canvas.bbox(d2_temp)
+        d2_h = (d2_box[3] - d2_box[1]) if d2_box else 14
+
+        self.opt_canvas.delete("all")
+
+        # Alturas dinâmicas com respiro generoso (evita qualquer corte de texto)
+        card1_h = max(72, 14 + t1_h + 3 + d1_h + 16)
+        card2_h = max(72, 14 + t2_h + 3 + d2_h + 16)
+
+        y1 = 12
+        y2 = y1 + card1_h + 10
+        self.opt_h = y2 + card2_h + 12
+
+        self.opt_canvas.config(width=self.opt_w, height=self.opt_h)
+
+        # Fundo do menu popup
         self._draw_rounded_rect(
             self.opt_canvas, 2, 2, self.opt_w - 2, self.opt_h - 2, radius=16, fill="#FFFFFF", outline="#E2E8F0", width=1.5
         )
 
-        is_clique_active = self.mode == "clique"
-        is_sel_active = self.mode == "selecao"
-
-        card_h = 72
-
         # Item 1: "Clique"
-        y1 = 12
         clique_bg = "#EEF4FE" if is_clique_active else "#F8FAFC"
         clique_border = "#1D5CD4" if is_clique_active else "#E2E8F0"
         self._draw_rounded_rect(
-            self.opt_canvas, 10, y1, self.opt_w - 10, y1 + card_h, radius=12, fill=clique_bg, outline=clique_border, width=1.5
+            self.opt_canvas, 10, y1, self.opt_w - 10, y1 + card1_h, radius=12, fill=clique_bg, outline=clique_border, width=1.5
         )
 
-        self.opt_canvas.create_oval(18, y1 + 18, 54, y1 + 54, fill="#FFFFFF", outline="#E2E8F0", width=1)
+        icon1_y = y1 + (card1_h - 36) // 2
+        self.opt_canvas.create_oval(18, icon1_y, 54, icon1_y + 36, fill="#FFFFFF", outline="#E2E8F0", width=1)
         self.opt_canvas.create_text(
-            36, y1 + 36, text="✛", font=("Segoe UI", 13, "bold"), fill="#1D5CD4"
+            36, icon1_y + 18, text="✛", font=("Segoe UI", 13, "bold"), fill="#1D5CD4"
         )
 
-        t1_id = self.opt_canvas.create_text(
-            62, y1 + 15, text="Clique" + ("  (Ativo)" if is_clique_active else ""),
-            font=("Segoe UI", 10, "bold"), fill="#0F172A", anchor="nw"
-        )
-        t1_box = self.opt_canvas.bbox(t1_id)
-        d1_y = (t1_box[3] + 4) if t1_box else (y1 + 35)
         self.opt_canvas.create_text(
-            62, d1_y, text="Usa o ponto exato da tela.",
-            font=("Segoe UI", 8), fill="#64748B", anchor="nw", width=self.opt_w - 74
+            62, y1 + 13, text=title1,
+            font=f_title, fill="#0F172A", anchor="nw"
+        )
+        self.opt_canvas.create_text(
+            62, y1 + 13 + t1_h + 3, text=desc1,
+            font=f_desc, fill="#64748B", anchor="nw", width=text_w
         )
 
         # Item 2: "Seleção"
-        y2 = 94
         sel_bg = "#EEF4FE" if is_sel_active else "#F8FAFC"
         sel_border = "#1D5CD4" if is_sel_active else "#E2E8F0"
         self._draw_rounded_rect(
-            self.opt_canvas, 10, y2, self.opt_w - 10, y2 + card_h, radius=12, fill=sel_bg, outline=sel_border, width=1.5
+            self.opt_canvas, 10, y2, self.opt_w - 10, y2 + card2_h, radius=12, fill=sel_bg, outline=sel_border, width=1.5
         )
 
-        self.opt_canvas.create_oval(18, y2 + 18, 54, y2 + 54, fill="#FFFFFF", outline="#E2E8F0", width=1)
+        icon2_y = y2 + (card2_h - 36) // 2
+        self.opt_canvas.create_oval(18, icon2_y, 54, icon2_y + 36, fill="#FFFFFF", outline="#E2E8F0", width=1)
         self.opt_canvas.create_text(
-            36, y2 + 36, text="⬚", font=("Segoe UI", 13, "bold"), fill="#1D5CD4"
+            36, icon2_y + 18, text="⬚", font=("Segoe UI", 13, "bold"), fill="#1D5CD4"
         )
 
-        t2_id = self.opt_canvas.create_text(
-            62, y2 + 15, text="Seleção" + ("  (Ativo)" if is_sel_active else ""),
-            font=("Segoe UI", 10, "bold"), fill="#0F172A", anchor="nw"
-        )
-        t2_box = self.opt_canvas.bbox(t2_id)
-        d2_y = (t2_box[3] + 4) if t2_box else (y2 + 35)
         self.opt_canvas.create_text(
-            62, d2_y, text="Marca uma área da tela.",
-            font=("Segoe UI", 8), fill="#64748B", anchor="nw", width=self.opt_w - 74
+            62, y2 + 13, text=title2,
+            font=f_title, fill="#0F172A", anchor="nw"
+        )
+        self.opt_canvas.create_text(
+            62, y2 + 13 + t2_h + 3, text=desc2,
+            font=f_desc, fill="#64748B", anchor="nw", width=text_w
         )
 
         def on_options_click(event):
             x, y = event.x, event.y
             if 10 <= x <= self.opt_w - 10:
-                if y1 <= y <= y1 + card_h:
+                if y1 <= y <= y1 + card1_h:
                     self.toggle_mode("clique")
-                elif y2 <= y <= y2 + card_h:
+                elif y2 <= y <= y2 + card2_h:
                     self.toggle_mode("selecao")
 
         self.opt_canvas.bind("<ButtonPress-1>", on_options_click)
@@ -489,8 +557,12 @@ class ScreenFloatingService:
         self.show_pill()
 
         if self.mode == "clique":
+            self.current_name = self.i18n.t("waiting_click")
+            self.current_detail = self.i18n.t("waiting_click_desc")
             self._start_global_click_mode()
         elif self.mode == "selecao":
+            self.current_name = self.i18n.t("waiting_select")
+            self.current_detail = self.i18n.t("waiting_select_desc")
             self._start_selection_mode()
 
     def deactivate_current_mode(self):
@@ -572,7 +644,7 @@ class ScreenFloatingService:
 
             # Título do cabeçalho
             self.pill_canvas.create_text(
-                16, 20, text="CORES NA REGIÃO",
+                16, 20, text=self.i18n.t("area_colors_title").upper(),
                 font=("Segoe UI", 8, "bold"), fill="#64748B", anchor="w"
             )
 
@@ -621,8 +693,8 @@ class ScreenFloatingService:
         # CASO 2: Modo Seleção Inicial (Aguardando marcar área)
         # ----------------------------------------------------
         elif self.mode == "selecao" and not self.area_colors:
-            title_text = "Selecione uma área"
-            detail_text = "Arraste na tela para listar"
+            title_text = self.i18n.t("select_area_hint")
+            detail_text = self.i18n.t("drag_hint")
 
             f_title = ("Segoe UI", 10, "bold")
             f_detail = ("Segoe UI", 7)
@@ -665,8 +737,12 @@ class ScreenFloatingService:
         # CASO 3: Modo Clique (Cor Única Identificada)
         # ----------------------------------------------------
         else:
-            title_text = self.current_name
-            detail_text = self.current_detail
+            if self.current_name in ("Aguardando clique", "Waiting for click", ""):
+                title_text = self.i18n.t("waiting_click")
+                detail_text = self.i18n.t("waiting_click_desc")
+            else:
+                title_text = self.i18n.translate_color(self.current_name)
+                detail_text = self.current_detail
 
             f_title = ("Segoe UI", 10, "bold")
             f_detail = ("Segoe UI", 7)

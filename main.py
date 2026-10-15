@@ -1,4 +1,13 @@
 import ctypes
+import flet as ft
+from theme import COLOR_BG
+from views.home_view import HomeView
+from views.camera_view import CameraView
+from views.image_view import ImageView
+from views.settings_view import SettingsView
+from views.daltonism_test_view import DaltonismTestView
+from services.i18n_service import I18nService
+
 try:
     # Ativa Per-Monitor DPI Aware logo no início do processo:
     # Garante proporções nítidas e sincronia 1:1 absoluta com as coordenadas do mouse (pynput e MSS)
@@ -9,18 +18,12 @@ except Exception:
     except Exception:
         pass
 
-import flet as ft
-from theme import COLOR_BG
-from views.home_view import HomeView
-from views.camera_view import CameraView
-from views.image_view import ImageView
-from views.settings_view import SettingsView
-from views.daltonism_test_view import DaltonismTestView
-
 
 def main(page: ft.Page):
+    i18n = I18nService.get_instance()
+
     # Configurações gerais da página e janela
-    page.title = "IRIS - Identificador de Cores"
+    page.title = i18n.t("app_title")
     page.theme_mode = ft.ThemeMode.LIGHT
     page.bgcolor = COLOR_BG
 
@@ -65,6 +68,15 @@ def main(page: ft.Page):
     page.on_view_pop = view_pop
     page.on_disconnect = on_app_close
     page.on_close = on_app_close
+
+    def on_language_changed(lang):
+        page.title = i18n.t("app_title")
+        if hasattr(page, "loop") and page.loop:
+            page.loop.call_soon_threadsafe(route_change)
+        else:
+            route_change()
+
+    i18n.add_listener(on_language_changed)
 
     # Carrega a visualização inicial
     route_change()

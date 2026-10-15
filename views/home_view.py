@@ -1,18 +1,7 @@
 import flet as ft
-from theme import (
-    COLOR_BG,
-    COLOR_CARD_BG,
-    COLOR_CARD_BORDER,
-    COLOR_PRIMARY,
-    COLOR_ICON_BG,
-    COLOR_TEXT_PRIMARY,
-    COLOR_TEXT_HEADING,
-    COLOR_TEXT_MUTED,
-    COLOR_TEXT_CHEVRON,
-    COLOR_BORDER_SUBTLE,
-)
+from theme import *
 from services.screen_service import ScreenFloatingService
-
+from services.i18n_service import I18nService
 
 def build_top_button(icon: str, label: str, on_click):
     """Cria o botão de cabeçalho (Teste / Configurações)."""
@@ -105,6 +94,7 @@ def build_feature_card(icon: str, title: str, description: str, on_click):
 
 def HomeView(page: ft.Page) -> ft.View:
     """Retorna a tela principal do IRIS."""
+    i18n = I18nService.get_instance()
 
     # Topo com Teste e Configurações
     header_bar = ft.Row(
@@ -113,12 +103,12 @@ def HomeView(page: ft.Page) -> ft.View:
         controls=[
             build_top_button(
                 icon=ft.Icons.REMOVE_RED_EYE_OUTLINED,
-                label="Teste · Em breve",
+                label=i18n.t("home_test_btn"),
                 on_click=lambda _: page.navigate("/daltonism_test"),
             ),
             build_top_button(
                 icon=ft.Icons.SETTINGS_OUTLINED,
-                label="Configurações",
+                label=i18n.t("home_settings_btn"),
                 on_click=lambda _: page.navigate("/settings"),
             ),
         ],
@@ -144,7 +134,7 @@ def HomeView(page: ft.Page) -> ft.View:
             ),
             ft.Container(height=4),
             ft.Text(
-                "No ambiente ou no digital, encontre\na cor de que você precisa.",
+                i18n.t("home_slogan"),
                 size=19,
                 weight=ft.FontWeight.W_600,
                 color=COLOR_TEXT_HEADING,
@@ -157,7 +147,7 @@ def HomeView(page: ft.Page) -> ft.View:
     section_title = ft.Container(
         padding=ft.Padding.only(left=2, top=6),
         content=ft.Text(
-            "COMO VOCÊ QUER IDENTIFICAR?",
+            i18n.t("home_section_title"),
             size=11.5,
             weight=ft.FontWeight.W_700,
             color=COLOR_TEXT_MUTED,
@@ -169,9 +159,9 @@ def HomeView(page: ft.Page) -> ft.View:
     service = ScreenFloatingService.get_instance()
 
     tela_desc = ft.Text(
-        "Menu flutuante ativo na tela. Toque para desligar."
+        i18n.t("home_screen_desc_active")
         if service.is_running
-        else "Menu flutuante para identificar cores\nem qualquer tela.",
+        else i18n.t("home_screen_desc_idle"),
         size=12.5,
         color="#059669" if service.is_running else COLOR_TEXT_MUTED,
         weight=ft.FontWeight.W_500 if service.is_running else ft.FontWeight.W_400,
@@ -183,7 +173,7 @@ def HomeView(page: ft.Page) -> ft.View:
             spacing=4,
             controls=[
                 ft.Container(width=7, height=7, border_radius=3.5, bgcolor="#10B981"),
-                ft.Text("LIGADO", size=10, weight=ft.FontWeight.W_800, color="#059669"),
+                ft.Text(i18n.t("home_screen_badge_on"), size=10, weight=ft.FontWeight.W_800, color="#059669"),
             ],
         )
         if service.is_running
@@ -197,9 +187,9 @@ def HomeView(page: ft.Page) -> ft.View:
     def refresh_tela_card():
         is_on = service.is_running
         tela_desc.value = (
-            "Menu flutuante ativo na tela. Toque para desligar."
+            i18n.t("home_screen_desc_active")
             if is_on
-            else "Menu flutuante para identificar cores\nem qualquer tela."
+            else i18n.t("home_screen_desc_idle")
         )
         tela_desc.color = "#059669" if is_on else COLOR_TEXT_MUTED
         tela_desc.weight = ft.FontWeight.W_500 if is_on else ft.FontWeight.W_400
@@ -209,7 +199,7 @@ def HomeView(page: ft.Page) -> ft.View:
                 spacing=4,
                 controls=[
                     ft.Container(width=7, height=7, border_radius=3.5, bgcolor="#10B981"),
-                    ft.Text("LIGADO", size=10, weight=ft.FontWeight.W_800, color="#059669"),
+                    ft.Text(i18n.t("home_screen_badge_on"), size=10, weight=ft.FontWeight.W_800, color="#059669"),
                 ],
             )
             if is_on
@@ -272,7 +262,7 @@ def HomeView(page: ft.Page) -> ft.View:
                     expand=True,
                     controls=[
                         ft.Text(
-                            "Tela",
+                            i18n.t("home_screen_title"),
                             size=16,
                             weight=ft.FontWeight.W_600,
                             color=COLOR_TEXT_PRIMARY,
@@ -291,14 +281,14 @@ def HomeView(page: ft.Page) -> ft.View:
         controls=[
             build_feature_card(
                 icon=ft.Icons.PHOTO_CAMERA_OUTLINED,
-                title="Câmera",
-                description="Identifique cores ao seu redor.",
+                title=i18n.t("home_camera_title"),
+                description=i18n.t("home_camera_desc"),
                 on_click=lambda _: page.navigate("/camera"),
             ),
             build_feature_card(
                 icon=ft.Icons.IMAGE_OUTLINED,
-                title="Imagem",
-                description="Escolha uma foto e toque em uma\nregião.",
+                title=i18n.t("home_image_title"),
+                description=i18n.t("home_image_desc"),
                 on_click=lambda _: page.navigate("/image"),
             ),
             tela_card,
@@ -317,7 +307,7 @@ def HomeView(page: ft.Page) -> ft.View:
                 color=COLOR_TEXT_MUTED,
             ),
             ft.Text(
-                "Sempre uma cor. Sempre um nome.",
+                i18n.t("home_footer"),
                 size=11.5,
                 color=COLOR_TEXT_MUTED,
                 weight=ft.FontWeight.W_400,

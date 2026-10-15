@@ -1,21 +1,16 @@
 import flet as ft
-from theme import (
-    COLOR_PRIMARY,
-    COLOR_ICON_BG,
-    COLOR_TEXT_MUTED,
-    COLOR_CARD_BG,
-    COLOR_BORDER_SUBTLE,
-)
-
+from theme import *
+from services.i18n_service import I18nService
 
 def build_bottom_nav(page: ft.Page, active_tab: str = "camera") -> ft.Container:
     """
     Barra de navegação inferior alternando entre as telas Câmera e Imagem.
     A função Tela permanece com controle exclusivo na tela principal.
     """
+    i18n = I18nService.get_instance()
     tabs = [
-        ("camera", "Câmera", ft.Icons.PHOTO_CAMERA_OUTLINED, "/camera"),
-        ("image", "Imagem", ft.Icons.IMAGE_OUTLINED, "/image"),
+        ("camera", i18n.t("nav_camera"), ft.Icons.PHOTO_CAMERA_OUTLINED, "/camera"),
+        ("image", i18n.t("nav_image"), ft.Icons.IMAGE_OUTLINED, "/image"),
     ]
 
     item_controls = []

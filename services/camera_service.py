@@ -6,15 +6,10 @@ import threading
 import time
 from collections import Counter
 import numpy as np
+from services.color_dataset import ColorDatasetService
 
 # Permite execução direta do script ou importação via módulo raiz
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
-try:
-    from services.color_dataset import ColorDatasetService
-except ModuleNotFoundError:
-    from color_dataset import ColorDatasetService
-
 
 class CameraService:
     def __init__(self):

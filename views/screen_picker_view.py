@@ -1,17 +1,7 @@
 import flet as ft
-from theme import (
-    COLOR_BG,
-    COLOR_PRIMARY,
-    COLOR_CARD_BG,
-    COLOR_CARD_BORDER,
-    COLOR_TEXT_PRIMARY,
-    COLOR_TEXT_MUTED,
-    COLOR_ICON_BG,
-    COLOR_BORDER_SUBTLE,
-)
+from theme import *
 from components.bottom_nav import build_bottom_nav
 from services.screen_service import ScreenFloatingService
-
 
 def ScreenPickerView(page: ft.Page) -> ft.View:
     """Tela de Captura de Tela (Menu Flutuante / Suspenso)."""

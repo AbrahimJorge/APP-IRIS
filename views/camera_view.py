@@ -1,17 +1,9 @@
 import time
 import flet as ft
-from theme import (
-    COLOR_BG,
-    COLOR_PRIMARY,
-    COLOR_CARD_BG,
-    COLOR_CARD_BORDER,
-    COLOR_TEXT_PRIMARY,
-    COLOR_TEXT_MUTED,
-    COLOR_ICON_BG,
-    COLOR_BORDER_SUBTLE,
-)
+from theme import *
 from components.bottom_nav import build_bottom_nav
 from services.camera_service import CameraService
+from services.i18n_service import I18nService
 
 
 class CameraUIController:
@@ -256,8 +248,9 @@ class CameraUIController:
             self.tab_selecao.content.color = COLOR_TEXT_MUTED if is_clique else COLOR_PRIMARY
             self.tab_selecao.content.weight = ft.FontWeight.W_500 if is_clique else ft.FontWeight.W_700
 
+        i18n = I18nService.get_instance()
         if self.badge_text:
-            self.badge_text.value = "TOQUE EM UM PONTO" if is_clique else "SELECIONE UMA ÁREA"
+            self.badge_text.value = i18n.t("waiting_click").upper() if is_clique else i18n.t("waiting_select").upper()
 
         if self.target_ring:
             self.target_ring.visible = is_clique and self.has_selected_color
@@ -266,9 +259,9 @@ class CameraUIController:
 
         if self.instruction_text:
             self.instruction_text.value = (
-                "Toque no ponto para identificar a cor"
+                i18n.t("camera_tap_hint")
                 if is_clique
-                else "Segure e arraste para selecionar uma área"
+                else i18n.t("camera_drag_hint")
             )
 
         self._render_result_card()
@@ -304,20 +297,20 @@ class CameraUIController:
                             expand=True,
                             controls=[
                                 ft.Text(
-                                    "NENHUMA COR SELECIONADA",
+                                    I18nService.get_instance().t("waiting_click").upper(),
                                     size=10,
                                     weight=ft.FontWeight.W_700,
                                     color=COLOR_TEXT_MUTED,
                                     style=ft.TextStyle(letter_spacing=0.5),
                                 ),
                                 ft.Text(
-                                    "Toque na imagem",
+                                    I18nService.get_instance().t("camera_tap_hint"),
                                     size=16,
                                     weight=ft.FontWeight.BOLD,
                                     color=COLOR_TEXT_PRIMARY,
                                 ),
                                 ft.Text(
-                                    "Toque em qualquer ponto da câmera para identificar a cor.",
+                                    I18nService.get_instance().t("waiting_click_desc"),
                                     size=12,
                                     color=COLOR_TEXT_MUTED,
                                 ),
@@ -389,20 +382,20 @@ class CameraUIController:
                             expand=True,
                             controls=[
                                 ft.Text(
-                                    "NENHUMA ÁREA SELECIONADA",
+                                    I18nService.get_instance().t("waiting_select").upper(),
                                     size=10,
                                     weight=ft.FontWeight.W_700,
                                     color=COLOR_TEXT_MUTED,
                                     style=ft.TextStyle(letter_spacing=0.5),
                                 ),
                                 ft.Text(
-                                    "Selecione uma região",
+                                    I18nService.get_instance().t("select_area_hint"),
                                     size=16,
                                     weight=ft.FontWeight.BOLD,
                                     color=COLOR_TEXT_PRIMARY,
                                 ),
                                 ft.Text(
-                                    "Segure e arraste sobre a câmera para listar as cores.",
+                                    I18nService.get_instance().t("waiting_select_desc"),
                                     size=12,
                                     color=COLOR_TEXT_MUTED,
                                 ),
@@ -484,6 +477,7 @@ class CameraUIController:
 
 def CameraView(page: ft.Page) -> ft.View:
     """Retorna a tela de Câmera em tempo real."""
+    i18n = I18nService.get_instance()
     ctrl = CameraUIController(page)
 
     def navigate_away(route: str):
@@ -514,7 +508,7 @@ def CameraView(page: ft.Page) -> ft.View:
                 ),
             ),
             ft.Text(
-                "IRIS / Câmera",
+                f"{i18n.t('breadcrumb_iris')} / {i18n.t('nav_camera')}",
                 size=14,
                 weight=ft.FontWeight.W_600,
                 color=COLOR_TEXT_MUTED,
@@ -527,7 +521,7 @@ def CameraView(page: ft.Page) -> ft.View:
         spacing=4,
         controls=[
             ft.Text(
-                "Câmera",
+                i18n.t("nav_camera"),
                 size=24,
                 weight=ft.FontWeight.BOLD,
                 color=COLOR_TEXT_PRIMARY,
@@ -548,7 +542,7 @@ def CameraView(page: ft.Page) -> ft.View:
         bgcolor=COLOR_ICON_BG,
         alignment=ft.Alignment.CENTER,
         content=ft.Text(
-            "Clique",
+            i18n.t("tab_clique"),
             size=13,
             weight=ft.FontWeight.W_700,
             color=COLOR_PRIMARY,
@@ -562,7 +556,7 @@ def CameraView(page: ft.Page) -> ft.View:
         border_radius=10,
         alignment=ft.Alignment.CENTER,
         content=ft.Text(
-            "Seleção",
+            i18n.t("tab_selecao"),
             size=13,
             weight=ft.FontWeight.W_500,
             color=COLOR_TEXT_MUTED,

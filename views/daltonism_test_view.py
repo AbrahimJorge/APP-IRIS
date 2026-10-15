@@ -1,8 +1,9 @@
 import flet as ft
-from theme import COLOR_BG, COLOR_PRIMARY, COLOR_CARD_BG, COLOR_CARD_BORDER, COLOR_TEXT_PRIMARY, COLOR_TEXT_MUTED
-
+from theme import *
+from services.i18n_service import I18nService
 
 def DaltonismTestView(page: ft.Page) -> ft.View:
+    i18n = I18nService.get_instance()
     return ft.View(
         route="/daltonism_test",
         bgcolor=COLOR_BG,
@@ -26,7 +27,7 @@ def DaltonismTestView(page: ft.Page) -> ft.View:
                                     on_click=lambda _: page.navigate("/"),
                                 ),
                                 ft.Text(
-                                    "Teste de Daltonismo",
+                                    i18n.t("daltonism_title"),
                                     size=17,
                                     weight=ft.FontWeight.W_600,
                                     color=COLOR_TEXT_PRIMARY,
@@ -47,13 +48,13 @@ def DaltonismTestView(page: ft.Page) -> ft.View:
                                 controls=[
                                     ft.Icon(ft.Icons.REMOVE_RED_EYE_OUTLINED, size=52, color=COLOR_PRIMARY),
                                     ft.Text(
-                                        "Teste de Visão e Daltonismo",
+                                        i18n.t("daltonism_heading"),
                                         size=16,
                                         weight=ft.FontWeight.W_600,
                                         color=COLOR_TEXT_PRIMARY,
                                     ),
                                     ft.Text(
-                                        "Em breve: Teste de identificação com placas de Ishihara e mapeamento de tipo de daltonismo.",
+                                        i18n.t("daltonism_coming_soon"),
                                         size=13,
                                         color=COLOR_TEXT_MUTED,
                                         text_align=ft.TextAlign.CENTER,
