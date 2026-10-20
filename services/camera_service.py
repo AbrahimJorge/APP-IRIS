@@ -23,6 +23,31 @@ class CameraService:
         self.camera_facing = "back"  
         self.lock = threading.Lock()
         self.is_busy = False
+        self.cap_available = False
+
+    def load_frame_bytes(self, image_bytes: bytes) -> bool:
+        """Carrega um frame a partir de bytes codificados (JPEG/PNG) da câmera mobile."""
+        try:
+            self.dataset.load()
+            nparr = np.frombuffer(image_bytes, np.uint8)
+            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            if frame is not None:
+                with self.lock:
+                    self.current_frame = frame
+                return True
+        except Exception as e:
+            print(f"Erro ao carregar frame de bytes: {e}")
+        return False
+
+    def load_frame_array(self, frame: np.ndarray) -> bool:
+        """Carrega um frame diretamente a partir de um array numpy BGR."""
+        try:
+            self.dataset.load()
+            with self.lock:
+                self.current_frame = frame
+            return True
+        except Exception:
+            return False
 
     def start(self, on_frame_callback=None):
         """Inicia a captura da câmera em tempo real em uma thread de segundo plano."""
@@ -38,6 +63,7 @@ class CameraService:
                 if (not self.cap or not self.cap.isOpened()) and hasattr(cv2, "CAP_DSHOW") and os.name == "nt":
                     self.cap = cv2.VideoCapture(self.camera_index, cv2.CAP_DSHOW)
                 if self.cap and self.cap.isOpened():
+                    self.cap_available = True
                     try:
                         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                     except Exception:
@@ -47,9 +73,12 @@ class CameraService:
                         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
                     except Exception:
                         pass
+                else:
+                    self.cap_available = False
             except Exception as e:
-                print(f"Erro ao inicializar câmera: {e}")
+                print(f"Erro ao inicializar câmera OpenCV: {e}")
                 self.cap = None
+                self.cap_available = False
 
             while self.is_running:
                 if self.cap and self.cap.isOpened():
@@ -118,6 +147,13 @@ class CameraService:
     def toggle_facing(self):
         """Alterna entre câmera frontal e traseira."""
         self.camera_facing = "front" if self.camera_facing == "back" else "back"
+        self.camera_index = 1 if self.camera_facing == "front" else 0
+        if self.cap:
+            try:
+                self.cap.release()
+            except Exception:
+                pass
+            self.cap = None
         return self.camera_facing
 
     def sample_point(self, norm_x: float, norm_y: float) -> dict | None:

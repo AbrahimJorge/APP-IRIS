@@ -46,6 +46,16 @@ Este documento lista todas as bibliotecas Python utilizadas no projeto IRIS, div
 - **Contexto geral e uso no projeto:**
   Ela e uma biblioteca que serve para monitorar e controlar dispositivos de entrada fisicos (mouse e teclado) em nivel global no sistema operacional. Neste projeto, esta sendo usada para escutar eventos globais de movimento e clique do mouse (`mouse.Listener`), permitindo que a ferramenta flutuante acompanhe o cursor e identifique quando e onde o usuario clicou para inspecionar uma cor fora da janela principal.
 
+### Flet Camera (flet-camera)
+- **Usada nos arquivos:** `views/camera_view.py`
+- **Contexto geral e uso no projeto:**
+  Ela e uma biblioteca de extensao do Flet baseada no plugin Flutter Camera, permitindo transmissao, visualizacao e captura de imagens diretamente do hardware de cameras fisicas em dispositivos moveis (Android e iOS). Neste projeto, e usada para renderizar a previa ao vivo da camera no celular, alternar entre a camera frontal e traseira, e capturar snapshots de alta resolucao para amostragem de cores.
+
+### Flet Permission Handler (flet-permission-handler)
+- **Usada nos arquivos:** `views/camera_view.py`
+- **Contexto geral e uso no projeto:**
+  Ela e uma biblioteca de extensao do Flet que gerencia permissoes em tempo de execucao no sistema operacional movel (Android e iOS). Neste projeto, e usada para requisitar explicitamente a permissao de acesso a camera do dispositivo (`fph.Permission.CAMERA`) ao usuario ao abrir a tela de camera no celular.
+
 ---
 
 ## Bibliotecas Nativas (Standard Library)

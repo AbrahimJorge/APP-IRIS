@@ -1,5 +1,7 @@
 flet==1.0.4
 flet-desktop==1.0.4
+flet-camera==1.0.4
+flet-permission-handler==1.0.4
 opencv-python==5.0.0.93
 numpy==2.5.3
 pillow==12.3.0

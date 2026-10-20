@@ -1,0 +1,32 @@
+[project]
+name = "iris-color"
+version = "1.0.0"
+description = "IRIS - Identificador e Reconhecedor Inteligente de Superfícies e Cores"
+dependencies = [
+    "flet==1.0.4",
+    "flet-camera==1.0.4",
+    "flet-permission-handler==1.0.4",
+    "opencv-python==5.0.0.93",
+    "numpy==2.5.3",
+    "pillow==12.3.0",
+    "pandas==3.0.5",
+    "scipy==1.18.1"
+]
+
+[tool.flet.app]
+path = "."
+
+[tool.flet.android]
+permissions = [
+    "android.permission.CAMERA",
+    "android.permission.READ_EXTERNAL_STORAGE",
+    "android.permission.WRITE_EXTERNAL_STORAGE",
+    "android.permission.READ_MEDIA_IMAGES"
+]
+
+[tool.flet.android.permission]
+"android.permission.CAMERA" = true
+"android.permission.RECORD_AUDIO" = false
+"android.permission.READ_EXTERNAL_STORAGE" = true
+"android.permission.WRITE_EXTERNAL_STORAGE" = true
+"android.permission.READ_MEDIA_IMAGES" = true
