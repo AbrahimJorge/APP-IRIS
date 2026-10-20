@@ -235,8 +235,16 @@ class CameraUIController:
         self.target_x = max(10.0, min(local_x, 350.0))
         self.target_y = max(10.0, min(local_y, 370.0))
 
-        norm_x = max(0.0, min(self.target_x / 360.0, 1.0))
-        norm_y = max(0.0, min(self.target_y / 380.0, 1.0))
+        if self.is_flet_cam_active:
+            cam_scale = 1.45
+            unscaled_x = 142.5 + (self.target_x - 180.0) / cam_scale
+            unscaled_y = 190.0 + (self.target_y - 190.0) / cam_scale
+            norm_x = max(0.0, min(unscaled_x / 285.0, 1.0))
+            norm_y = max(0.0, min(unscaled_y / 380.0, 1.0))
+        else:
+            norm_x = max(0.0, min(self.target_x / 360.0, 1.0))
+            norm_y = max(0.0, min(self.target_y / 380.0, 1.0))
+
         res = self.service.sample_point(norm_x, norm_y)
 
         if res:
@@ -356,8 +364,15 @@ class CameraUIController:
         x0, y0 = self.drag_start
         x1, y1 = self.drag_cur
 
-        norm_x0, norm_x1 = x0 / 360.0, x1 / 360.0
-        norm_y0, norm_y1 = y0 / 380.0, y1 / 380.0
+        if self.is_flet_cam_active:
+            cam_scale = 1.45
+            norm_x0 = max(0.0, min((142.5 + (x0 - 180.0) / cam_scale) / 285.0, 1.0))
+            norm_x1 = max(0.0, min((142.5 + (x1 - 180.0) / cam_scale) / 285.0, 1.0))
+            norm_y0 = max(0.0, min((190.0 + (y0 - 190.0) / cam_scale) / 380.0, 1.0))
+            norm_y1 = max(0.0, min((190.0 + (y1 - 190.0) / cam_scale) / 380.0, 1.0))
+        else:
+            norm_x0, norm_x1 = x0 / 360.0, x1 / 360.0
+            norm_y0, norm_y1 = y0 / 380.0, y1 / 380.0
 
         if self.is_flet_cam_active and self.camera_widget:
             async def _capture_area():
@@ -919,7 +934,19 @@ def CameraView(page: ft.Page) -> ft.View:
 
     viewport_controls = [ctrl.camera_placeholder_icon]
     if ctrl.camera_widget:
-        viewport_controls.append(ctrl.camera_widget)
+        ctrl.camera_wrapper = ft.Container(
+            left=0,
+            top=0,
+            right=0,
+            bottom=0,
+            alignment=ft.Alignment.CENTER,
+            content=ft.Container(
+                content=ctrl.camera_widget,
+                scale=1.45,
+                alignment=ft.Alignment.CENTER,
+            ),
+        )
+        viewport_controls.append(ctrl.camera_wrapper)
     viewport_controls.extend([
         ctrl.camera_image,
         gesture_layer,

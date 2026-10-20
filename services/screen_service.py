@@ -1,17 +1,24 @@
+import asyncio
 import ctypes
+import io
 import threading
 import time
 import numpy as np
+import flet as ft
+
+try:
+    from PIL import Image
+except (ImportError, Exception):
+    Image = None
 
 try:
     import tkinter as tk
-    from PIL import Image, ImageTk, ImageGrab
+    from PIL import ImageTk, ImageGrab
     from pynput import mouse
     import mss
     DESKTOP_SCREEN_AVAILABLE = True
 except (ImportError, Exception):
     tk = None
-    Image = None
     ImageTk = None
     ImageGrab = None
     mouse = None
@@ -48,14 +55,635 @@ def _make_window_click_through(win):
         pass
 
 
+class MobileFloatingOverlay:
+    """
+    Menu Flutuante sobreposto em Flet (page.overlay).
+    Permite arrastar o olho do IRIS na tela do celular, expandir opções
+    e identificar cores de pontos e áreas com retorno em tempo real.
+    """
+    def __init__(self, page: ft.Page, service):
+        self.page = page
+        self.service = service
+        self.dataset = service.dataset
+        self.i18n = service.i18n
+
+        pw = float(getattr(page, "width", 380) or 380)
+        self.btn_x = max(10.0, pw - 72.0)
+        self.btn_y = 260.0
+        self.is_menu_open = False
+        self.mode = None
+        self.cached_image = None
+        self.sel_start = None
+        self.sel_cur = None
+        self.is_mounted = False
+
+        self._build_controls()
+
+    def _build_controls(self):
+        # 1. Mira de precisão (reticle ring)
+        self.reticle_ring = ft.Container(
+            width=32,
+            height=32,
+            border_radius=16,
+            border=ft.Border.all(2.5, "#FFFFFF"),
+            shadow=ft.BoxShadow(
+                blur_radius=6,
+                spread_radius=1,
+                color="#00000088",
+            ),
+            visible=False,
+        )
+
+        # 2. Retângulo de seleção de área
+        self.selection_box = ft.Container(
+            border_radius=8,
+            border=ft.Border.all(2, "#38BDF8"),
+            bgcolor="#38BDF822",
+            visible=False,
+        )
+
+        # 3. Camada de inspeção em tela cheia
+        self.inspection_layer = ft.Container(
+            left=0,
+            top=0,
+            right=0,
+            bottom=0,
+            visible=False,
+            content=ft.Stack(
+                controls=[
+                    ft.GestureDetector(
+                        left=0,
+                        top=0,
+                        right=0,
+                        bottom=0,
+                        on_tap_up=self._on_inspection_tap,
+                        on_pan_start=self._on_inspection_pan_start,
+                        on_pan_update=self._on_inspection_pan_update,
+                        on_pan_end=self._on_inspection_pan_end,
+                        content=ft.Container(
+                            bgcolor="#00000005",
+                        ),
+                    ),
+                    self.selection_box,
+                    self.reticle_ring,
+                ]
+            ),
+        )
+
+        # 4. Botão Flutuante (Olho IRIS)
+        self.floating_btn = ft.Container(
+            left=self.btn_x,
+            top=self.btn_y,
+            width=56,
+            height=56,
+            border_radius=28,
+            bgcolor="#0D1B2A",
+            border=ft.Border.all(2, "#38BDF8"),
+            shadow=ft.BoxShadow(
+                blur_radius=10,
+                spread_radius=1,
+                color="#66000000",
+                offset=ft.Offset(0, 4),
+            ),
+            alignment=ft.Alignment.CENTER,
+            content=ft.GestureDetector(
+                on_pan_update=self._on_btn_pan_update,
+                on_tap=lambda _: self.toggle_options(),
+                content=ft.Container(
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Image(
+                        src="floating_eye.png",
+                        width=38,
+                        height=38,
+                        fit=ft.BoxFit.CONTAIN,
+                    ),
+                ),
+            ),
+        )
+
+        # 5. Menu Popup de Opções
+        self.opt_point = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+            border_radius=12,
+            ink=True,
+            on_click=lambda _: self.set_mode("clique"),
+            content=ft.Row(
+                spacing=10,
+                controls=[
+                    ft.Container(
+                        width=36,
+                        height=36,
+                        border_radius=10,
+                        bgcolor="#EEF4FE",
+                        alignment=ft.Alignment.CENTER,
+                        content=ft.Icon(ft.Icons.GPS_FIXED_ROUNDED, color="#1D5CD4", size=18),
+                    ),
+                    ft.Column(
+                        spacing=2,
+                        expand=True,
+                        controls=[
+                            ft.Text("Modo Ponto", size=13, weight=ft.FontWeight.W_700, color="#0F172A"),
+                            ft.Text("Toque na tela para ler a cor", size=10.5, color="#64748B"),
+                        ],
+                    ),
+                ],
+            ),
+        )
+
+        self.opt_area = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+            border_radius=12,
+            ink=True,
+            on_click=lambda _: self.set_mode("selecao"),
+            content=ft.Row(
+                spacing=10,
+                controls=[
+                    ft.Container(
+                        width=36,
+                        height=36,
+                        border_radius=10,
+                        bgcolor="#EEF4FE",
+                        alignment=ft.Alignment.CENTER,
+                        content=ft.Icon(ft.Icons.CROP_ROUNDED, color="#1D5CD4", size=18),
+                    ),
+                    ft.Column(
+                        spacing=2,
+                        expand=True,
+                        controls=[
+                            ft.Text("Modo Área", size=13, weight=ft.FontWeight.W_700, color="#0F172A"),
+                            ft.Text("Arraste e analise a região", size=10.5, color="#64748B"),
+                        ],
+                    ),
+                ],
+            ),
+        )
+
+        self.opt_close = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+            border_radius=12,
+            ink=True,
+            on_click=lambda _: self.close(),
+            content=ft.Row(
+                spacing=10,
+                controls=[
+                    ft.Container(
+                        width=36,
+                        height=36,
+                        border_radius=10,
+                        bgcolor="#FEE2E2",
+                        alignment=ft.Alignment.CENTER,
+                        content=ft.Icon(ft.Icons.POWER_SETTINGS_NEW_ROUNDED, color="#DC2626", size=18),
+                    ),
+                    ft.Text("Desativar Menu", size=12.5, weight=ft.FontWeight.W_600, color="#DC2626"),
+                ],
+            ),
+        )
+
+        self.options_card = ft.Container(
+            visible=False,
+            width=260,
+            bgcolor="#FFFFFF",
+            border=ft.Border.all(1.2, "#CBD5E1"),
+            border_radius=18,
+            padding=ft.Padding.all(10),
+            shadow=ft.BoxShadow(
+                blur_radius=16,
+                spread_radius=1,
+                color="#26000000",
+                offset=ft.Offset(0, 4),
+            ),
+            content=ft.Column(
+                spacing=6,
+                tight=True,
+                controls=[
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        controls=[
+                            ft.Text("MENU FLUTUANTE", size=10, weight=ft.FontWeight.W_800, color="#64748B"),
+                            ft.IconButton(
+                                icon=ft.Icons.CLOSE_ROUNDED,
+                                icon_size=16,
+                                on_click=lambda _: self.toggle_options(False),
+                            ),
+                        ],
+                    ),
+                    self.opt_point,
+                    self.opt_area,
+                    ft.Divider(height=1, color="#E2E8F0"),
+                    self.opt_close,
+                ],
+            ),
+        )
+
+        # 6. Card Flutuante de Resultado (Pill)
+        self.pill_swatch = ft.Container(
+            width=34,
+            height=34,
+            border_radius=10,
+            bgcolor="#1D5CD4",
+            border=ft.Border.all(1.5, "#CBD5E1"),
+        )
+        self.pill_title = ft.Text("Aguardando toque...", size=13, weight=ft.FontWeight.W_700, color="#0F172A")
+        self.pill_detail = ft.Text("Toque na tela para ler a cor", size=11, color="#64748B")
+        self.pill_area_content = ft.Column(spacing=4, visible=False)
+
+        self.pill_card = ft.Container(
+            visible=False,
+            bottom=75,
+            left=16,
+            right=16,
+            bgcolor="#FFFFFF",
+            border=ft.Border.all(1.2, "#CBD5E1"),
+            border_radius=16,
+            padding=ft.Padding.all(12),
+            shadow=ft.BoxShadow(
+                blur_radius=14,
+                spread_radius=0,
+                color="#22000000",
+                offset=ft.Offset(0, 3),
+            ),
+            content=ft.Column(
+                tight=True,
+                spacing=8,
+                controls=[
+                    ft.Row(
+                        spacing=10,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            self.pill_swatch,
+                            ft.Column(
+                                spacing=2,
+                                expand=True,
+                                controls=[
+                                    self.pill_title,
+                                    self.pill_detail,
+                                ],
+                            ),
+                            ft.IconButton(
+                                icon=ft.Icons.CLOSE_ROUNDED,
+                                icon_size=18,
+                                on_click=lambda _: self.deactivate_mode(),
+                            ),
+                        ],
+                    ),
+                    self.pill_area_content,
+                ],
+            ),
+        )
+
+    def _on_btn_pan_update(self, e: ft.DragUpdateEvent):
+        self.btn_x += getattr(e, "delta_x", 0) or 0
+        self.btn_y += getattr(e, "delta_y", 0) or 0
+        pw = float(getattr(self.page, "width", 380) or 380)
+        ph = float(getattr(self.page, "height", 800) or 800)
+        self.btn_x = max(10.0, min(pw - 66.0, self.btn_x))
+        self.btn_y = max(30.0, min(ph - 80.0, self.btn_y))
+        self.floating_btn.left = self.btn_x
+        self.floating_btn.top = self.btn_y
+        self._reposition_options()
+        try:
+            self.page.update()
+        except Exception:
+            pass
+
+    def _reposition_options(self):
+        pw = float(getattr(self.page, "width", 380) or 380)
+        ph = float(getattr(self.page, "height", 800) or 800)
+        if self.btn_x > pw / 2:
+            self.options_card.left = max(10.0, self.btn_x - 265.0)
+        else:
+            self.options_card.left = min(pw - 270.0, self.btn_x + 62.0)
+        self.options_card.top = max(40.0, min(ph - 240.0, self.btn_y - 20.0))
+
+    def toggle_options(self, force: bool | None = None):
+        if force is not None:
+            self.is_menu_open = force
+        else:
+            self.is_menu_open = not self.is_menu_open
+
+        self._reposition_options()
+        self.options_card.visible = self.is_menu_open
+        try:
+            self.page.update()
+        except Exception:
+            pass
+
+    def set_mode(self, new_mode: str):
+        if self.mode == new_mode:
+            self.deactivate_mode()
+            return
+
+        self.mode = new_mode
+        self.is_menu_open = False
+        self.options_card.visible = False
+        self.reticle_ring.visible = False
+        self.selection_box.visible = False
+        self.pill_card.visible = True
+
+        if new_mode == "clique":
+            self.pill_swatch.visible = True
+            self.pill_area_content.visible = False
+            self.pill_title.value = "Modo Ponto Ativo"
+            self.pill_detail.value = "Toque em qualquer lugar da tela"
+            self.opt_point.bgcolor = "#EEF4FE"
+            self.opt_area.bgcolor = None
+        else:
+            self.pill_swatch.visible = False
+            self.pill_area_content.visible = False
+            self.pill_title.value = "Modo Área Ativo"
+            self.pill_detail.value = "Arraste sobre a tela para selecionar"
+            self.opt_point.bgcolor = None
+            self.opt_area.bgcolor = "#EEF4FE"
+
+        self.inspection_layer.visible = True
+        try:
+            self.page.update()
+        except Exception:
+            pass
+
+        async def _snapshot():
+            try:
+                self.inspection_layer.visible = False
+                self.pill_card.visible = False
+                self.options_card.visible = False
+                try:
+                    self.page.update()
+                except Exception:
+                    pass
+                await asyncio.sleep(0.04)
+                png_bytes = await self.page.take_screenshot()
+                if png_bytes and Image:
+                    self.cached_image = Image.open(io.BytesIO(png_bytes)).convert("RGB")
+            except Exception as e:
+                print(f"Aviso screenshot Flet overlay: {e}")
+            finally:
+                self.inspection_layer.visible = True
+                self.pill_card.visible = True
+                try:
+                    self.page.update()
+                except Exception:
+                    pass
+
+        if hasattr(self.page, "run_task"):
+            self.page.run_task(_snapshot)
+        elif self.page and hasattr(self.page, "loop") and self.page.loop:
+            asyncio.run_coroutine_threadsafe(_snapshot(), self.page.loop)
+
+    def deactivate_mode(self):
+        self.mode = None
+        self.inspection_layer.visible = False
+        self.pill_card.visible = False
+        self.reticle_ring.visible = False
+        self.selection_box.visible = False
+        self.opt_point.bgcolor = None
+        self.opt_area.bgcolor = None
+        try:
+            self.page.update()
+        except Exception:
+            pass
+
+    def _on_inspection_tap(self, e: ft.TapEvent):
+        if self.mode != "clique":
+            return
+        pos = getattr(e, "local_position", None)
+        if pos is not None and hasattr(pos, "x") and hasattr(pos, "y"):
+            x, y = float(pos.x), float(pos.y)
+        elif hasattr(e, "local_x") and e.local_x is not None:
+            x, y = float(e.local_x), float(e.local_y)
+        else:
+            return
+
+        self.reticle_ring.left = max(0.0, x - 16.0)
+        self.reticle_ring.top = max(0.0, y - 16.0)
+        self.reticle_ring.visible = True
+
+        r, g, b = self._sample_pixel_at(x, y)
+        family, tone_detail, hex_code = self.dataset.classify_color(r, g, b)
+        specific_name = self.dataset.get_closest_color_name(r, g, b)
+
+        self.pill_swatch.visible = True
+        self.pill_swatch.bgcolor = hex_code
+        self.pill_title.value = family
+        self.pill_detail.value = f"{specific_name} · {hex_code.upper()} · {tone_detail}"
+        try:
+            self.page.update()
+        except Exception:
+            pass
+
+    def _on_inspection_pan_start(self, e: ft.DragStartEvent):
+        if self.mode != "selecao":
+            return
+        pos = getattr(e, "local_position", None)
+        if pos is not None and hasattr(pos, "x") and hasattr(pos, "y"):
+            x, y = float(pos.x), float(pos.y)
+        elif hasattr(e, "local_x") and e.local_x is not None:
+            x, y = float(e.local_x), float(e.local_y)
+        else:
+            return
+        self.sel_start = (x, y)
+        self.sel_cur = (x, y)
+        self._update_sel_box()
+
+    def _on_inspection_pan_update(self, e: ft.DragUpdateEvent):
+        if self.mode != "selecao" or not self.sel_start:
+            return
+        pos = getattr(e, "local_position", None)
+        if pos is not None and hasattr(pos, "x") and hasattr(pos, "y"):
+            x, y = float(pos.x), float(pos.y)
+        elif hasattr(e, "local_x") and e.local_x is not None:
+            x, y = float(e.local_x), float(e.local_y)
+        else:
+            return
+        self.sel_cur = (x, y)
+        self._update_sel_box()
+
+    def _update_sel_box(self):
+        if not self.sel_start or not self.sel_cur:
+            return
+        x0, y0 = self.sel_start
+        x1, y1 = self.sel_cur
+        left = min(x0, x1)
+        top = min(y0, y1)
+        w = max(10.0, abs(x1 - x0))
+        h = max(10.0, abs(y1 - y0))
+        self.selection_box.left = left
+        self.selection_box.top = top
+        self.selection_box.width = w
+        self.selection_box.height = h
+        self.selection_box.visible = True
+        try:
+            self.page.update()
+        except Exception:
+            pass
+
+    def _on_inspection_pan_end(self, e: ft.DragEndEvent):
+        if self.mode != "selecao" or not self.sel_start or not self.sel_cur:
+            return
+        x0, y0 = self.sel_start
+        x1, y1 = self.sel_cur
+        self._sample_area_colors(x0, y0, x1, y1)
+
+    def _sample_pixel_at(self, x: float, y: float) -> tuple[int, int, int]:
+        if self.cached_image:
+            try:
+                pw = float(getattr(self.page, "width", 380) or 380)
+                ph = float(getattr(self.page, "height", 800) or 800)
+                iw, ih = self.cached_image.size
+                px = max(0, min(int(x * iw / pw), iw - 1))
+                py = max(0, min(int(y * ih / ph), ih - 1))
+                pix = self.cached_image.getpixel((px, py))
+                if isinstance(pix, (tuple, list)) and len(pix) >= 3:
+                    return int(pix[0]), int(pix[1]), int(pix[2])
+                elif isinstance(pix, (int, float)):
+                    val = int(pix)
+                    return val, val, val
+            except Exception:
+                pass
+        return 29, 92, 212
+
+    def _sample_area_colors(self, x0: float, y0: float, x1: float, y1: float):
+        if not self.cached_image:
+            return
+        try:
+            pw = float(getattr(self.page, "width", 380) or 380)
+            ph = float(getattr(self.page, "height", 800) or 800)
+            iw, ih = self.cached_image.size
+
+            rx0 = max(0, min(int(min(x0, x1) * iw / pw), iw - 1))
+            rx1 = max(0, min(int(max(x0, x1) * iw / pw), iw - 1))
+            ry0 = max(0, min(int(min(y0, y1) * ih / ph), ih - 1))
+            ry1 = max(0, min(int(max(y0, y1) * ih / ph), ih - 1))
+
+            if (rx1 - rx0) < 5 or (ry1 - ry0) < 5:
+                return
+
+            cropped = self.cached_image.crop((rx0, ry0, rx1, ry1))
+            arr = np.array(cropped)
+            if arr.ndim == 3 and arr.shape[2] >= 3:
+                pixels_rgb = arr[:, :, :3].reshape(-1, 3).astype(np.int32)
+                if len(pixels_rgb) > 1500:
+                    idx = np.random.choice(len(pixels_rgb), 1500, replace=False)
+                    pixels_rgb = pixels_rgb[idx]
+
+                distances, indices = self.dataset.query(pixels_rgb)
+                matched_names = self.dataset.get_names_by_indices(indices)
+
+                import pandas as pd
+                counts = pd.Series(matched_names).value_counts()
+                total = len(matched_names)
+
+                top_colors = []
+                for label, count in counts.head(4).items():
+                    pct = (count / total) * 100
+                    if pct < 3.0 and len(top_colors) >= 1:
+                        continue
+                    sel = (matched_names == label)
+                    mean_rgb = pixels_rgb[sel].mean(axis=0).astype(int)
+                    mr, mg, mb = int(mean_rgb[0]), int(mean_rgb[1]), int(mean_rgb[2])
+                    family, _, hex_code = self.dataset.classify_color(mr, mg, mb)
+                    top_colors.append({
+                        "name": family,
+                        "specific_name": label,
+                        "hex": hex_code,
+                        "pct": pct,
+                    })
+
+                if top_colors:
+                    self.pill_title.value = f"Área: {len(top_colors)} cores encontradas"
+                    self.pill_detail.value = "Cores predominantes na seleção"
+                    self.pill_swatch.visible = False
+                    self.pill_area_content.controls = [
+                        ft.Row(
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            controls=[
+                                ft.Row(
+                                    spacing=8,
+                                    controls=[
+                                        ft.Container(
+                                            width=18,
+                                            height=18,
+                                            border_radius=5,
+                                            bgcolor=c["hex"],
+                                            border=ft.Border.all(1, "#CBD5E1"),
+                                        ),
+                                        ft.Text(f"{c['name']} ({c['hex']})", size=11, weight=ft.FontWeight.W_600),
+                                    ],
+                                ),
+                                ft.Container(
+                                    padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                                    border_radius=6,
+                                    bgcolor="#EEF4FE",
+                                    content=ft.Text(f"{c['pct']:.0f}%", size=10, weight=ft.FontWeight.W_700, color="#1D5CD4"),
+                                ),
+                            ],
+                        )
+                        for c in top_colors
+                    ]
+                    self.pill_area_content.visible = True
+                    try:
+                        self.page.update()
+                    except Exception:
+                        pass
+        except Exception as e:
+            print(f"Erro analisando área overlay: {e}")
+
+    def show(self):
+        if not self.is_mounted:
+            if self.inspection_layer not in self.page.overlay:
+                self.page.overlay.append(self.inspection_layer)
+            if self.options_card not in self.page.overlay:
+                self.page.overlay.append(self.options_card)
+            if self.pill_card not in self.page.overlay:
+                self.page.overlay.append(self.pill_card)
+            if self.floating_btn not in self.page.overlay:
+                self.page.overlay.append(self.floating_btn)
+            self.is_mounted = True
+
+        self.floating_btn.visible = True
+        self.options_card.visible = False
+        self.pill_card.visible = False
+        self.inspection_layer.visible = False
+        try:
+            self.page.update()
+        except Exception:
+            pass
+
+    def hide(self):
+        self.deactivate_mode()
+        self.floating_btn.visible = False
+        self.options_card.visible = False
+        self.pill_card.visible = False
+        try:
+            self.page.update()
+        except Exception:
+            pass
+
+    def destroy(self):
+        self.hide()
+        for ctrl in [self.inspection_layer, self.options_card, self.pill_card, self.floating_btn]:
+            if ctrl in self.page.overlay:
+                self.page.overlay.remove(ctrl)
+        self.is_mounted = False
+        try:
+            self.page.update()
+        except Exception:
+            pass
+
+    def close(self):
+        self.service.stop()
+
+    def on_language_changed(self):
+        pass
+
+
 class ScreenFloatingService:
     """
-    Serviço do Menu Flutuante Suspenso (Tela) para identificação de cores do desktop/tela.
-    Recurso exclusivo para ambiente Desktop.
+    Serviço do Menu Flutuante Suspenso (Tela) para identificação de cores do desktop e celular.
+    Suporta modo Desktop (janelas nativas Tkinter) e modo Mobile (overlay nativo Flet).
     """
 
     _instance = None
-    is_available = DESKTOP_SCREEN_AVAILABLE
+    is_available = True
 
     @classmethod
     def get_instance(cls):
@@ -64,27 +692,27 @@ class ScreenFloatingService:
         return cls._instance
 
     def __init__(self):
-        self.is_available = DESKTOP_SCREEN_AVAILABLE
+        self.is_available = True
         self.is_running = False
         self.mode = None
         self.is_menu_open = False
         self.dock_side = "right"
         self.on_status_change = None
+        self.page = None
+        self.mobile_overlay = None
 
-        if not DESKTOP_SCREEN_AVAILABLE:
-            return
         self.dataset = ColorDatasetService()
         self.dataset.load()
 
-        self.is_running = False
-        self.mode = None  
-        self.is_menu_open = False
-        self.dock_side = "right"  
+        self.i18n = I18nService.get_instance()
+        self.i18n.add_listener(self._on_language_changed)
 
-        
-        self.on_status_change = None
+        self.current_hex = "#1D5CD4"
+        self.current_name = self.i18n.t("waiting_click")
+        self.current_detail = self.i18n.t("waiting_click_desc")
+        self.area_colors = []
 
-        
+        # Desktop Tkinter state
         self.tk_thread = None
         self._thread_initialized = threading.Event()
         self.root = None
@@ -93,12 +721,10 @@ class ScreenFloatingService:
         self.pill_win = None
         self.reticle_win = None
         self.overlay_win = None
-
-        
+        self.overlay_canvas = None
         self._eye_photo = None
         self._reticle_hide_timer = None
 
-        
         self.btn_size = 56
         self.opt_w = 280
         self.opt_h = 178
@@ -106,29 +732,12 @@ class ScreenFloatingService:
         self.pill_h = 60
         self.ret_size = 32
 
-        
-        self.i18n = I18nService.get_instance()
-        self.i18n.add_listener(self._on_language_changed)
-
-        
-        self.current_hex = "#1D5CD4"
-        self.current_name = self.i18n.t("waiting_click")
-        self.current_detail = self.i18n.t("waiting_click_desc")
-
-        
-        self.area_colors = []
-
-        
         self.btn_x = 0
         self.btn_y = 0
         self.drag_start_x = 0
         self.drag_start_y = 0
         self.is_dragging_btn = False
-
-        
         self.mouse_listener = None
-
-        
         self.sel_start_x = None
         self.sel_start_y = None
         self.sel_cur_x = 0
@@ -136,40 +745,59 @@ class ScreenFloatingService:
         self.is_drawing_area = False
         self.area_rect_id = None
 
-    def start(self, on_status_change=None):
+    def start(self, on_status_change=None, page=None):
         """Ativa o menu flutuante suspenso."""
-        if not self.is_available:
-            return
         self.on_status_change = on_status_change
+        if page:
+            self.page = page
 
         if self.current_name in ("Aguardando clique", "Waiting for click", ""):
             self.current_name = self.i18n.t("waiting_click")
             self.current_detail = self.i18n.t("waiting_click_desc")
 
-        if self.root is None:
-            self.is_running = True
-            self.tk_thread = threading.Thread(target=self._run_tk_thread, daemon=True)
-            self.tk_thread.start()
-            self._thread_initialized.wait(timeout=2.0)
-        else:
-            self.is_running = True
-            self.root.after(0, self._show_floating_button)
+        # Se tiver page (Mobile / Flet overlay) ou se Desktop Tkinter não estiver disponível:
+        if self.page is not None or not DESKTOP_SCREEN_AVAILABLE:
+            if not self.mobile_overlay and self.page:
+                self.mobile_overlay = MobileFloatingOverlay(self.page, self)
+            if self.mobile_overlay:
+                self.is_running = True
+                self.mobile_overlay.show()
+                if self.on_status_change:
+                    try:
+                        self.on_status_change(True)
+                    except Exception:
+                        pass
+                return
 
-        if self.on_status_change:
-            try:
-                self.on_status_change(True)
-            except Exception:
-                pass
+        # Modo Desktop Tkinter
+        if DESKTOP_SCREEN_AVAILABLE:
+            if self.root is None:
+                self.is_running = True
+                self.tk_thread = threading.Thread(target=self._run_tk_thread, daemon=True)
+                self.tk_thread.start()
+                self._thread_initialized.wait(timeout=2.0)
+            else:
+                self.is_running = True
+                self.root.after(0, self._show_floating_button)
+
+            if self.on_status_change:
+                try:
+                    self.on_status_change(True)
+                except Exception:
+                    pass
 
     def stop(self):
-        """Desativa o menu flutuante e oculta as janelas sem matar o loop Tcl."""
-        if not self.is_running:
-            return
-
+        """Desativa o menu flutuante e oculta as janelas."""
         self.is_running = False
         self.mode = None
         self.is_menu_open = False
         self.area_colors = []
+
+        if self.mobile_overlay:
+            try:
+                self.mobile_overlay.hide()
+            except Exception:
+                pass
 
         if self.mouse_listener and self.mouse_listener.is_alive():
             try:
@@ -193,6 +821,12 @@ class ScreenFloatingService:
     def shutdown(self):
         """Encerramento completo ao fechar o app Flet."""
         self.stop()
+        if self.mobile_overlay:
+            try:
+                self.mobile_overlay.destroy()
+            except Exception:
+                pass
+            self.mobile_overlay = None
         if self.root:
             try:
                 self.root.after(0, self.root.quit)
@@ -226,6 +860,12 @@ class ScreenFloatingService:
             self.current_detail = self.i18n.t("waiting_select_desc")
         else:
             self.current_name = self.i18n.translate_color(self.current_name)
+
+        if self.mobile_overlay:
+            try:
+                self.mobile_overlay.on_language_changed()
+            except Exception:
+                pass
 
         if self.root:
             def _update_ui():
