@@ -1,5 +1,5 @@
 [project]
-name = "iris-color"
+name = "iris"
 version = "1.0.0"
 description = "IRIS - Identificador e Reconhecedor Inteligente de Superfícies e Cores"
 dependencies = [
@@ -13,12 +13,23 @@ dependencies = [
     "scipy==1.18.1"
 ]
 
+[tool.flet]
+org = "br.org.eldorado.iris"
+product = "IRIS"
+
 [tool.flet.app]
 path = "."
+
+[tool.flet.icons]
+android = "assets/logo.png"
+splash_android = "assets/logo.png"
+splash_android_dark = "assets/logo.png"
 
 [tool.flet.android]
 permissions = [
     "android.permission.CAMERA",
+    "android.permission.SYSTEM_ALERT_WINDOW",
+    "android.permission.FOREGROUND_SERVICE",
     "android.permission.READ_EXTERNAL_STORAGE",
     "android.permission.WRITE_EXTERNAL_STORAGE",
     "android.permission.READ_MEDIA_IMAGES"
@@ -26,6 +37,7 @@ permissions = [
 
 [tool.flet.android.permission]
 "android.permission.CAMERA" = true
+"android.permission.SYSTEM_ALERT_WINDOW" = true
 "android.permission.RECORD_AUDIO" = false
 "android.permission.READ_EXTERNAL_STORAGE" = true
 "android.permission.WRITE_EXTERNAL_STORAGE" = true

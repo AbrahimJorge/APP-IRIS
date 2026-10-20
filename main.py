@@ -28,6 +28,7 @@ def main(page: ft.Page):
 
     if hasattr(page, "window") and page.window:
         try:
+            page.window.icon = "assets/logo.png"
             page.window.width = 415
             page.window.height = 860
             page.window.min_width = 360
