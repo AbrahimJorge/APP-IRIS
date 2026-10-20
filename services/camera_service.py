@@ -26,17 +26,46 @@ class CameraService:
         self.cap_available = False
 
     def load_frame_bytes(self, image_bytes: bytes) -> bool:
-        """Carrega um frame a partir de bytes codificados (JPEG/PNG) da câmera mobile."""
+        """Carrega e orienta o frame a partir de bytes de imagem (JPEG/PNG) da câmera."""
         try:
             self.dataset.load()
-            nparr = np.frombuffer(image_bytes, np.uint8)
-            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            if frame is not None:
-                with self.lock:
-                    self.current_frame = frame
-                return True
+            import io
+            from PIL import Image, ImageOps
+
+            # 1. Carrega via PIL para corrigir orientação EXIF
+            img = Image.open(io.BytesIO(image_bytes))
+            img = ImageOps.exif_transpose(img)
+
+            # 2. Garante 3 canais de cor RGB
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+
+            # 3. Converte para array NumPy BGR
+            rgb_arr = np.array(img)
+            bgr_arr = cv2.cvtColor(rgb_arr, cv2.COLOR_RGB2BGR)
+
+            # 4. Se a imagem capturada estiver em paisagem no celular (largura > altura),
+            # rotaciona 90 graus para alinhar perfeitamente com a orientação em pé (retrato)
+            h, w = bgr_arr.shape[:2]
+            if w > h:
+                bgr_arr = cv2.rotate(bgr_arr, cv2.ROTATE_90_CLOCKWISE)
+
+            with self.lock:
+                self.current_frame = bgr_arr
+            return True
         except Exception as e:
-            print(f"Erro ao carregar frame de bytes: {e}")
+            print(f"Aviso no carregamento PIL do frame: {e}")
+            try:
+                nparr = np.frombuffer(image_bytes, np.uint8)
+                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                if frame is not None:
+                    if len(frame.shape) == 2:
+                        frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+                    with self.lock:
+                        self.current_frame = frame
+                    return True
+            except Exception as e2:
+                print(f"Erro no fallback OpenCV: {e2}")
         return False
 
     def load_frame_array(self, frame: np.ndarray) -> bool:
@@ -171,8 +200,18 @@ class CameraService:
         py = max(0, min(int(norm_y * h), h - 1))
 
         
-        b, g, r = frame[py, px]
-        r, g, b = int(r), int(g), int(b)
+        if frame.ndim == 2:
+            val = int(frame[py, px])
+            r, g, b = val, val, val
+        elif frame.ndim == 3:
+            pixel = frame[py, px]
+            if hasattr(pixel, "__len__") and len(pixel) >= 3:
+                b, g, r = int(pixel[0]), int(pixel[1]), int(pixel[2])
+            else:
+                val = int(pixel[0]) if hasattr(pixel, "__getitem__") else int(pixel)
+                r, g, b = val, val, val
+        else:
+            return None
 
         family, tone_detail, hex_code = self.dataset.classify_color(r, g, b)
         specific_name = self.dataset.get_closest_color_name(r, g, b)
@@ -196,6 +235,9 @@ class CameraService:
             if self.current_frame is None:
                 return []
             frame = self.current_frame.copy()
+
+        if frame.ndim == 2:
+            frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
 
         h, w = frame.shape[:2]
         x0 = max(0, min(int(min(norm_x0, norm_x1) * w), w - 1))

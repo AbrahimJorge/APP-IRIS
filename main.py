@@ -5,6 +5,7 @@ from theme import COLOR_BG
 from views.home_view import HomeView
 from views.camera_view import CameraView
 from views.image_view import ImageView
+from views.screen_picker_view import ScreenPickerView
 from views.settings_view import SettingsView
 from views.daltonism_test_view import DaltonismTestView
 from services.i18n_service import I18nService
@@ -44,6 +45,8 @@ def main(page: ft.Page):
 
         if page.route == "/camera":
             page.views.append(CameraView(page))
+        elif page.route == "/screen":
+            page.views.append(ScreenPickerView(page))
         elif page.route == "/image":
             page.views.append(ImageView(page))
         elif page.route == "/settings":

@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import base64
+import asyncio
 import threading
 import flet as ft
 from theme import *
@@ -26,8 +27,8 @@ except Exception:
 
 class CameraUIController:
     """
-    Controlador da tela de Câmera mobile e desktop integrado ao CameraService (KDTree + OpenCV/Flet Camera).
-    Suporta câmera nativa no celular (frontal e traseira), captura com mira e fallback para desktop.
+    Controlador da tela de Câmera mobile e desktop integrado ao CameraService (KDTree + Flet Camera/OpenCV).
+    Suporta câmera nativa em tempo real no celular (frontal e traseira), identificação instantânea ao tocar e rotação em pé.
     """
 
     def __init__(self, page: ft.Page):
@@ -37,7 +38,7 @@ class CameraUIController:
 
         self.service = CameraService()
 
-        # Controle de estado de seleção
+        # Coordenadas e seleção
         self.has_selected_color = False
         self.has_selected_area = False
         self.target_x = 180.0
@@ -51,7 +52,6 @@ class CameraUIController:
         self._reticle_timer = None
 
         self.is_frame_updating = False
-        self.is_frozen = False
         self.is_flet_cam_active = False
 
         self.point_color_name = ""
@@ -59,12 +59,12 @@ class CameraUIController:
         self.point_color_hex = ""
         self.area_colors = []
 
-        # Câmeras físicas detectadas no celular
+        # Câmeras físicas detectadas
         self.available_cameras = []
         self.back_camera = None
         self.front_camera = None
 
-        # Controles visuais
+        # Elementos visuais
         self.tab_clique = None
         self.tab_selecao = None
         self.badge_text = None
@@ -76,8 +76,6 @@ class CameraUIController:
         self.camera_widget = None
         self.camera_placeholder_icon = None
         self.flip_button = None
-        self.btn_capture = None
-        self.btn_resume = None
 
         # Gerenciador de permissões
         self.perm_handler = None
@@ -89,24 +87,34 @@ class CameraUIController:
             except Exception:
                 self.perm_handler = None
 
-        # FilePicker para fallback nativo de foto no celular
-        self.file_picker = ft.FilePicker()
-        if hasattr(page, "services") and self.file_picker not in page.services:
-            page.services.append(self.file_picker)
+    def _is_widget_mounted(self) -> bool:
+        """Verifica com segurança se o widget de câmera já está associado à página."""
+        if not self.camera_widget:
+            return False
+        try:
+            return self.camera_widget.page is not None
+        except Exception:
+            return False
 
     def start_camera(self):
-        """Inicia a câmera mobile (fc.Camera) ou fallback OpenCV no desktop."""
+        """Inicia a câmera mobile (fc.Camera) imediatamente após a montagem da view."""
         if HAS_FLET_CAMERA and self.camera_widget:
             async def _init_mobile():
-                try:
-                    # Solicita permissão da câmera no Android
-                    if self.perm_handler:
-                        try:
-                            await self.perm_handler.request(fph.Permission.CAMERA)
-                        except Exception as pe:
-                            print(f"Aviso ao requisitar permissão: {pe}")
+                # 1. Aguarda a montagem da view na árvore da página (até 1.5s em passos de 40ms)
+                for _ in range(35):
+                    if self._is_widget_mounted():
+                        break
+                    await asyncio.sleep(0.04)
 
-                    # Obtém lista de câmeras físicas disponíveis
+                # 2. Requisita permissão nativa da câmera no Android
+                if self.perm_handler:
+                    try:
+                        await self.perm_handler.request(fph.Permission.CAMERA)
+                    except Exception as pe:
+                        print(f"Aviso permissão da câmera: {pe}")
+
+                # 3. Detecta lentes físicas disponíveis e inicializa com JPEG e orientação em pé
+                try:
                     cams = await self.camera_widget.get_available_cameras()
                     if cams:
                         self.available_cameras = cams
@@ -124,30 +132,35 @@ class CameraUIController:
                             description=target,
                             resolution_preset=fc.ResolutionPreset.MEDIUM,
                             enable_audio=False,
+                            image_format_group=fc.ImageFormatGroup.JPEG,
                         )
+                        try:
+                            await self.camera_widget.lock_capture_orientation(ft.DeviceOrientation.PORTRAIT_UP)
+                        except Exception:
+                            pass
+
                         self.is_flet_cam_active = True
                         if self.camera_placeholder_icon:
                             self.camera_placeholder_icon.visible = False
                         if self.camera_widget:
                             self.camera_widget.visible = True
-                        if self.btn_capture:
-                            self.btn_capture.visible = True
+                        if self.camera_image:
+                            self.camera_image.visible = False
                         try:
                             self.page.update()
                         except Exception:
                             pass
                         return
                 except Exception as e:
-                    print(f"fc.Camera indisponível ou em desktop: {e}")
+                    print(f"fc.Camera não pôde ser iniciado diretamente: {e}")
                     self.is_flet_cam_active = False
 
-                # Fallback para stream OpenCV (Desktop)
+                # Fallback para stream OpenCV em ambiente Desktop
                 self.start_desktop_camera()
 
             if hasattr(self.page, "run_task"):
                 self.page.run_task(_init_mobile)
             elif self.page and hasattr(self.page, "loop") and self.page.loop:
-                import asyncio
                 asyncio.run_coroutine_threadsafe(_init_mobile(), self.page.loop)
             else:
                 self.start_desktop_camera()
@@ -157,7 +170,7 @@ class CameraUIController:
     def start_desktop_camera(self):
         """Inicia OpenCV VideoCapture para uso em computador (Windows/Linux/Mac)."""
         def on_new_frame(data_uri: str):
-            if not self.camera_image or self.is_frame_updating or self.is_frozen:
+            if not self.camera_image or self.is_frame_updating:
                 return
             try:
                 if self.camera_image.page:
@@ -174,8 +187,6 @@ class CameraUIController:
                 self.is_frame_updating = False
 
         self.service.start(on_new_frame)
-        if self.btn_capture:
-            self.btn_capture.visible = True
 
     def stop_camera(self):
         """Para a câmera e libera hardware de forma segura."""
@@ -188,16 +199,20 @@ class CameraUIController:
                 self.camera_facing = "front" if self.camera_facing == "back" else "back"
                 target = self.front_camera if self.camera_facing == "front" else self.back_camera
                 if not target and self.available_cameras:
-                    target = self.available_cameras[0]
+                    idx = 1 if (self.camera_facing == "front" and len(self.available_cameras) > 1) else 0
+                    target = self.available_cameras[idx]
                 if target:
                     try:
                         await self.camera_widget.initialize(
                             description=target,
                             resolution_preset=fc.ResolutionPreset.MEDIUM,
                             enable_audio=False,
+                            image_format_group=fc.ImageFormatGroup.JPEG,
                         )
-                        if self.is_frozen:
-                            self.resume_camera()
+                        try:
+                            await self.camera_widget.lock_capture_orientation(ft.DeviceOrientation.PORTRAIT_UP)
+                        except Exception:
+                            pass
                     except Exception as e:
                         print(f"Erro ao alternar câmera frontal/traseira: {e}")
                 try:
@@ -208,108 +223,14 @@ class CameraUIController:
             if hasattr(self.page, "run_task"):
                 self.page.run_task(_switch)
             elif self.page and hasattr(self.page, "loop") and self.page.loop:
-                import asyncio
                 asyncio.run_coroutine_threadsafe(_switch(), self.page.loop)
         else:
             self.camera_facing = self.service.toggle_facing()
             self.stop_camera()
             self.start_desktop_camera()
 
-    def capture_photo(self, tapped_coords=None):
-        """Captura um snapshot da câmera, congela o frame e identifica a cor no ponto."""
-        if self.is_flet_cam_active and self.camera_widget:
-            async def _capture():
-                try:
-                    img_bytes = await self.camera_widget.take_picture()
-                    if img_bytes:
-                        ok = self.service.load_frame_bytes(img_bytes)
-                        if ok:
-                            self.is_frozen = True
-                            b64_str = base64.b64encode(img_bytes).decode("utf-8")
-                            self.camera_image.src = f"data:image/jpeg;base64,{b64_str}"
-                            self.camera_image.visible = True
-                            self.camera_widget.visible = False
-                            if self.btn_resume:
-                                self.btn_resume.visible = True
-                            if self.btn_capture:
-                                self.btn_capture.visible = False
-
-                            cx = tapped_coords[0] if tapped_coords else 180.0
-                            cy = tapped_coords[1] if tapped_coords else 190.0
-                            self.sample_point_at(cx, cy, is_final=True)
-                            self.page.update()
-                except Exception as e:
-                    print(f"Erro ao capturar foto da câmera: {e}")
-
-            if hasattr(self.page, "run_task"):
-                self.page.run_task(_capture)
-            elif self.page and hasattr(self.page, "loop") and self.page.loop:
-                import asyncio
-                asyncio.run_coroutine_threadsafe(_capture(), self.page.loop)
-        else:
-            if tapped_coords:
-                self.sample_point_at(tapped_coords[0], tapped_coords[1], is_final=True)
-
-    def resume_camera(self):
-        """Descongela e retoma a transmissão contínua da câmera."""
-        self.is_frozen = False
-        if self.is_flet_cam_active and self.camera_widget:
-            self.camera_widget.visible = True
-            self.camera_image.visible = False
-        if self.btn_resume:
-            self.btn_resume.visible = False
-        if self.btn_capture:
-            self.btn_capture.visible = True
-        self._hide_reticle()
-        try:
-            self.page.update()
-        except Exception:
-            pass
-
-    def pick_native_camera(self):
-        """Permite tirar uma foto diretamente pelo aplicativo de câmera do celular."""
-        async def _pick():
-            try:
-                files = await self.file_picker.pick_files(
-                    dialog_title="Tirar Foto com a Câmera",
-                    file_type=ft.FilePickerFileType.IMAGE,
-                    allow_multiple=False,
-                    with_data=True,
-                )
-                if files and len(files) > 0:
-                    selected_file = files[0]
-                    img_bytes = getattr(selected_file, "bytes", None)
-                    if not img_bytes and getattr(selected_file, "path", None):
-                        with open(selected_file.path, "rb") as f:
-                            img_bytes = f.read()
-                    if img_bytes:
-                        ok = self.service.load_frame_bytes(img_bytes)
-                        if ok:
-                            self.is_frozen = True
-                            b64_str = base64.b64encode(img_bytes).decode("utf-8")
-                            self.camera_image.src = f"data:image/jpeg;base64,{b64_str}"
-                            self.camera_image.visible = True
-                            if self.camera_widget:
-                                self.camera_widget.visible = False
-                            if self.camera_placeholder_icon:
-                                self.camera_placeholder_icon.visible = False
-                            if self.btn_resume:
-                                self.btn_resume.visible = True
-                            if self.btn_capture:
-                                self.btn_capture.visible = False
-                            self.sample_point_at(180.0, 190.0, is_final=True)
-                            self.page.update()
-            except Exception as e:
-                print(f"Erro no seletor de foto nativo: {e}")
-
-        if hasattr(self.page, "run_task"):
-            self.page.run_task(_pick)
-        elif self.page and hasattr(self.page, "loop") and self.page.loop:
-            import asyncio
-            asyncio.run_coroutine_threadsafe(_pick(), self.page.loop)
-
     def sample_point_at(self, local_x: float, local_y: float, is_final: bool = False):
-        """Identifica a cor nas coordenadas com a mira vazada de precisão."""
+        """Identifica a cor nas coordenadas especificadas."""
         self._last_drag_pos = (local_x, local_y)
         self.target_x = max(10.0, min(local_x, 350.0))
         self.target_y = max(10.0, min(local_y, 370.0))
@@ -372,19 +293,36 @@ class CameraUIController:
 
     def handle_tap_down(self, local_x: float, local_y: float):
         self._hide_reticle()
-        if not self.is_frozen and self.is_flet_cam_active:
-            # Em modo mobile ao vivo, o toque dispara a captura e identifica o ponto
-            self.capture_photo(tapped_coords=(local_x, local_y))
-        else:
-            self.sample_point_at(local_x, local_y, is_final=False)
+        self.target_x = max(10.0, min(local_x, 350.0))
+        self.target_y = max(10.0, min(local_y, 370.0))
 
     def handle_tap_up(self, local_x: float, local_y: float):
-        if self.is_frozen or not self.is_flet_cam_active:
-            self.sample_point_at(local_x, local_y, is_final=True)
+        """Ao tocar na tela, captura a cor instantaneamente no ponto exato."""
+        self.target_x = max(10.0, min(local_x, 350.0))
+        self.target_y = max(10.0, min(local_y, 370.0))
+        self._show_reticle_at(self.target_x, self.target_y)
+
+        if self.is_flet_cam_active and self.camera_widget:
+            async def _capture_and_sample():
+                try:
+                    img_bytes = await self.camera_widget.take_picture()
+                    if img_bytes:
+                        self.service.load_frame_bytes(img_bytes)
+                except Exception as e:
+                    print(f"Erro na captura ao vivo da câmera: {e}")
+
+                self.sample_point_at(self.target_x, self.target_y, is_final=True)
+
+            if hasattr(self.page, "run_task"):
+                self.page.run_task(_capture_and_sample)
+            elif self.page and hasattr(self.page, "loop") and self.page.loop:
+                asyncio.run_coroutine_threadsafe(_capture_and_sample(), self.page.loop)
+        else:
+            self.sample_point_at(self.target_x, self.target_y, is_final=True)
 
     def handle_drag_point(self, local_x: float, local_y: float):
         now = time.time()
-        if now - self._last_drag_time < 0.025 or self._is_drag_updating:
+        if now - self._last_drag_time < 0.03 or self._is_drag_updating:
             return
         self._last_drag_time = now
         self._is_drag_updating = True
@@ -421,15 +359,39 @@ class CameraUIController:
         norm_x0, norm_x1 = x0 / 360.0, x1 / 360.0
         norm_y0, norm_y1 = y0 / 380.0, y1 / 380.0
 
-        colors = self.service.sample_area(norm_x0, norm_y0, norm_x1, norm_y1)
-        if colors:
-            self.has_selected_area = True
-            self.area_colors = colors
-            self._render_result_card()
-            try:
-                self.page.update()
-            except Exception:
-                pass
+        if self.is_flet_cam_active and self.camera_widget:
+            async def _capture_area():
+                try:
+                    img_bytes = await self.camera_widget.take_picture()
+                    if img_bytes:
+                        self.service.load_frame_bytes(img_bytes)
+                except Exception as e:
+                    print(f"Erro captura área: {e}")
+
+                colors = self.service.sample_area(norm_x0, norm_y0, norm_x1, norm_y1)
+                if colors:
+                    self.has_selected_area = True
+                    self.area_colors = colors
+                    self._render_result_card()
+                    try:
+                        self.page.update()
+                    except Exception:
+                        pass
+
+            if hasattr(self.page, "run_task"):
+                self.page.run_task(_capture_area)
+            elif self.page and hasattr(self.page, "loop") and self.page.loop:
+                asyncio.run_coroutine_threadsafe(_capture_area(), self.page.loop)
+        else:
+            colors = self.service.sample_area(norm_x0, norm_y0, norm_x1, norm_y1)
+            if colors:
+                self.has_selected_area = True
+                self.area_colors = colors
+                self._render_result_card()
+                try:
+                    self.page.update()
+                except Exception:
+                    pass
 
     def _update_selection_box(self):
         if not self.selection_box or not self.drag_start or not self.drag_cur:
@@ -527,7 +489,7 @@ class CameraUIController:
                                     color=COLOR_TEXT_PRIMARY,
                                 ),
                                 ft.Text(
-                                    "Aponte a câmera e toque na superfície para ver a cor.",
+                                    "Aponte a câmera e toque na tela para ler a cor exata.",
                                     size=12,
                                     color=COLOR_TEXT_MUTED,
                                 ),
@@ -610,7 +572,7 @@ class CameraUIController:
                                     color=COLOR_TEXT_PRIMARY,
                                 ),
                                 ft.Text(
-                                    "Arraste sobre a imagem capturada para ver as cores.",
+                                    "Arraste sobre a tela para ver a proporção de cores.",
                                     size=12,
                                     color=COLOR_TEXT_MUTED,
                                 ),
@@ -785,7 +747,18 @@ def CameraView(page: ft.Page) -> ft.View:
         ),
     )
 
-    # Imagem para congelamento ou stream desktop
+    # Widget nativo de câmera mobile
+    if HAS_FLET_CAMERA:
+        try:
+            ctrl.camera_widget = fc.Camera(
+                expand=True,
+                preview_enabled=True,
+                visible=True,
+            )
+        except Exception:
+            ctrl.camera_widget = None
+
+    # Imagem fallback para stream desktop
     ctrl.camera_image = ft.Image(
         src="",
         width=360,
@@ -794,17 +767,6 @@ def CameraView(page: ft.Page) -> ft.View:
         gapless_playback=True,
         visible=False,
     )
-
-    # Widget nativo de câmera mobile (se disponível)
-    if HAS_FLET_CAMERA:
-        try:
-            ctrl.camera_widget = fc.Camera(
-                expand=True,
-                preview_enabled=True,
-                visible=False,
-            )
-        except Exception:
-            ctrl.camera_widget = None
 
     ctrl.camera_placeholder_icon = ft.Container(
         alignment=ft.Alignment.CENTER,
@@ -847,7 +809,6 @@ def CameraView(page: ft.Page) -> ft.View:
         ),
     )
 
-    # Botão para alternar entre câmera frontal e traseira
     ctrl.flip_button = ft.Container(
         right=14,
         top=14,
@@ -977,63 +938,6 @@ def CameraView(page: ft.Page) -> ft.View:
         content=ft.Stack(controls=viewport_controls),
     )
 
-    ctrl.btn_capture = ft.GestureDetector(
-        mouse_cursor=ft.MouseCursor.CLICK,
-        on_tap=lambda _: ctrl.capture_photo(),
-        content=ft.Container(
-            padding=ft.Padding.symmetric(vertical=13, horizontal=16),
-            border_radius=14,
-            bgcolor=COLOR_PRIMARY,
-            alignment=ft.Alignment.CENTER,
-            content=ft.Row(
-                alignment=ft.MainAxisAlignment.CENTER,
-                spacing=8,
-                controls=[
-                    ft.Icon(ft.Icons.CAMERA_ALT_ROUNDED, color="#FFFFFF", size=20),
-                    ft.Text("Capturar Cor / Foto", size=14, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
-                ],
-            ),
-        ),
-    )
-
-    ctrl.btn_resume = ft.GestureDetector(
-        mouse_cursor=ft.MouseCursor.CLICK,
-        on_tap=lambda _: ctrl.resume_camera(),
-        visible=False,
-        content=ft.Container(
-            padding=ft.Padding.symmetric(vertical=13, horizontal=16),
-            border_radius=14,
-            bgcolor=COLOR_CARD_BG,
-            border=ft.Border.all(1.2, COLOR_BORDER_SUBTLE),
-            alignment=ft.Alignment.CENTER,
-            content=ft.Row(
-                alignment=ft.MainAxisAlignment.CENTER,
-                spacing=8,
-                controls=[
-                    ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, color=COLOR_PRIMARY, size=20),
-                    ft.Text("Retomar Câmera ao Vivo", size=14, weight=ft.FontWeight.BOLD, color=COLOR_PRIMARY),
-                ],
-            ),
-        ),
-    )
-
-    btn_native_camera = ft.GestureDetector(
-        mouse_cursor=ft.MouseCursor.CLICK,
-        on_tap=lambda _: ctrl.pick_native_camera(),
-        content=ft.Container(
-            padding=ft.Padding.symmetric(vertical=6),
-            alignment=ft.Alignment.CENTER,
-            content=ft.Row(
-                alignment=ft.MainAxisAlignment.CENTER,
-                spacing=6,
-                controls=[
-                    ft.Icon(ft.Icons.PHOTO_CAMERA_BACK_OUTLINED, color=COLOR_TEXT_MUTED, size=16),
-                    ft.Text("Tirar foto com câmera nativa do celular", size=12.5, color=COLOR_TEXT_MUTED),
-                ],
-            ),
-        ),
-    )
-
     ctrl.result_container = ft.Container(
         bgcolor=COLOR_CARD_BG,
         border=ft.Border.all(1.2, COLOR_CARD_BORDER),
@@ -1068,10 +972,7 @@ def CameraView(page: ft.Page) -> ft.View:
                 title_section,
                 mode_segmented_bar,
                 camera_viewport,
-                ctrl.btn_capture,
-                ctrl.btn_resume,
                 ctrl.result_container,
-                btn_native_camera,
                 disclaimer,
             ],
         ),
