@@ -6,9 +6,10 @@ import threading
 import time
 from collections import Counter
 import numpy as np
+
 from services.color_dataset import ColorDatasetService
 
-# Permite execução direta do script ou importação via módulo raiz
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 class CameraService:
@@ -19,7 +20,7 @@ class CameraService:
         self.thread = None
         self.current_frame = None
         self.camera_index = 0
-        self.camera_facing = "back"  # 'back' ou 'front'
+        self.camera_facing = "back"  
         self.lock = threading.Lock()
         self.is_busy = False
 
@@ -34,13 +35,18 @@ class CameraService:
         def stream_loop():
             try:
                 self.cap = cv2.VideoCapture(self.camera_index)
-                if not self.cap or not self.cap.isOpened():
+                if (not self.cap or not self.cap.isOpened()) and hasattr(cv2, "CAP_DSHOW") and os.name == "nt":
                     self.cap = cv2.VideoCapture(self.camera_index, cv2.CAP_DSHOW)
                 if self.cap and self.cap.isOpened():
-                    # Define buffer de 1 frame para evitar atrasos (latência zero)
-                    self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-                    self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                    self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                    try:
+                        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    except Exception:
+                        pass
+                    try:
+                        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                    except Exception:
+                        pass
             except Exception as e:
                 print(f"Erro ao inicializar câmera: {e}")
                 self.cap = None
@@ -52,25 +58,25 @@ class CameraService:
                         break
 
                     if ret and frame is not None:
-                        # Se estiver na câmera frontal, espelha horizontalmente (modo selfie)
+                        
                         if self.camera_facing == "front":
                             frame = cv2.flip(frame, 1)
 
                         with self.lock:
                             self.current_frame = frame
 
-                        # Só processa e envia novo frame se a UI já terminou de renderizar o anterior
+                        
                         if on_frame_callback and not self.is_busy:
                             self.is_busy = True
                             try:
-                                # Redimensiona para tamanho ideal leve (340x260)
+                                
                                 h, w = frame.shape[:2]
                                 target_w = 340
                                 scale = target_w / float(w)
                                 target_h = int(h * scale)
                                 display_frame = cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
 
-                                # Compactação JPEG rápida e de tamanho mínimo (~10KB)
+                                
                                 success, buffer = cv2.imencode(".jpg", display_frame, [cv2.IMWRITE_JPEG_QUALITY, 55])
                                 if success:
                                     b64_str = base64.b64encode(buffer).decode("utf-8")
@@ -81,9 +87,9 @@ class CameraService:
                             finally:
                                 self.is_busy = False
 
-                time.sleep(0.015)  # Taxa fluida em torno de 30 FPS
+                time.sleep(0.015)  
 
-            # Liberação segura dentro da própria thread após encerrar o loop
+            
             if self.cap:
                 try:
                     self.cap.release()
@@ -128,7 +134,7 @@ class CameraService:
         px = max(0, min(int(norm_x * w), w - 1))
         py = max(0, min(int(norm_y * h), h - 1))
 
-        # OpenCV usa BGR
+        
         b, g, r = frame[py, px]
         r, g, b = int(r), int(g), int(b)
 

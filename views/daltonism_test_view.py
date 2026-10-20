@@ -15,7 +15,7 @@ from theme import (
 from services.i18n_service import I18nService
 
 ALL_ISHIHARA_PLATES = [
-    # --- GRUPO 1: Demonstração / Controle (Placa 1) ---
+    
     {
         "plate": 1,
         "group": "demo",
@@ -28,7 +28,7 @@ ALL_ISHIHARA_PLATES = [
         "deutan_answers": [],
     },
 
-    # --- GRUPO 2: Transformação (Placas 2 a 9) ---
+    
     {
         "plate": 2,
         "group": "transformation",
@@ -118,7 +118,7 @@ ALL_ISHIHARA_PLATES = [
         "deutan_answers": [],
     },
 
-    # --- GRUPO 3: Desaparecimento (Placas 10 a 17) ---
+    
     {
         "plate": 10,
         "group": "vanishing",
@@ -208,7 +208,7 @@ ALL_ISHIHARA_PLATES = [
         "deutan_answers": [],
     },
 
-    # --- GRUPO 4: Ocultas (Placas 18 a 21) ---
+    
     {
         "plate": 18,
         "group": "hidden",
@@ -258,7 +258,7 @@ ALL_ISHIHARA_PLATES = [
         "deutan_answers": [],
     },
 
-    # --- GRUPO 5: Diagnóstico / Classificação Protan vs. Deutan (Placas 22 a 25) ---
+    
     {
         "plate": 22,
         "group": "diagnostic",
@@ -352,7 +352,7 @@ def evaluate_ishihara(questions: list, user_answers: dict) -> dict:
 
     total = len(questions)
 
-    # Classificação diagnóstica
+    
     if normal_count >= 8:
         category = "normal"
     elif rg_count >= 3 or normal_count <= 5:
@@ -419,8 +419,8 @@ def build_secondary_btn(text: str, icon: str, on_click, width: int = None):
 def DaltonismTestView(page: ft.Page) -> ft.View:
     i18n = I18nService.get_instance()
 
-    # Estado local do teste
-    current_mode = ["MENU"]  # "MENU" | "TEST" | "RESULT"
+    
+    current_mode = ["MENU"]  
     current_q = [0]
     active_questions = [generate_test_questions()]
     user_answers = {}
@@ -434,7 +434,7 @@ def DaltonismTestView(page: ft.Page) -> ft.View:
         main_column.controls.clear()
 
         if mode == "MENU":
-            # --- 1. TELA PRINCIPAL: MENU DE TESTES ---
+            
             top_bar = ft.Row(
                 spacing=12,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -480,7 +480,7 @@ def DaltonismTestView(page: ft.Page) -> ft.View:
                 ],
             )
 
-            # Card 1: Teste de Ishihara (Disponível agora)
+            
             def on_start_ishihara(_):
                 active_questions[0] = generate_test_questions()
                 current_mode[0] = "TEST"
@@ -570,7 +570,7 @@ def DaltonismTestView(page: ft.Page) -> ft.View:
                 ),
             )
 
-            # Card 2: Teste Farnsworth D-15 (Em breve)
+            
             d15_card = ft.Container(
                 bgcolor=COLOR_CARD_BG,
                 border=ft.Border.all(1.2, COLOR_CARD_BORDER),
@@ -612,7 +612,7 @@ def DaltonismTestView(page: ft.Page) -> ft.View:
                 ),
             )
 
-            # Card 3: Teste Tritan (Em breve)
+            
             tritan_card = ft.Container(
                 bgcolor=COLOR_CARD_BG,
                 border=ft.Border.all(1.2, COLOR_CARD_BORDER),
@@ -663,7 +663,7 @@ def DaltonismTestView(page: ft.Page) -> ft.View:
             ])
 
         elif mode == "TEST":
-            # --- 2. TELA DE EXECUÇÃO: QUIZ ISHIHARA ---
+            
             questions = active_questions[0]
             q_idx = current_q[0]
             q_data = questions[q_idx]
@@ -700,7 +700,7 @@ def DaltonismTestView(page: ft.Page) -> ft.View:
                 ],
             )
 
-            # Barra de progresso linear
+            
             progress_bar = ft.ProgressBar(
                 value=progress,
                 color=COLOR_PRIMARY,
@@ -709,7 +709,7 @@ def DaltonismTestView(page: ft.Page) -> ft.View:
                 border_radius=3,
             )
 
-            # Imagem da placa de Ishihara
+            
             plate_img = ft.Container(
                 bgcolor="#FFFFFF",
                 border_radius=20,
@@ -738,7 +738,7 @@ def DaltonismTestView(page: ft.Page) -> ft.View:
                 text_align=ft.TextAlign.CENTER,
             )
 
-            # Botões de opção
+            
             options = q_data["options_en"] if lang == "en" else q_data["options_pt"]
 
             def make_option_btn(opt_text):
@@ -800,7 +800,7 @@ def DaltonismTestView(page: ft.Page) -> ft.View:
             ])
 
         elif mode == "RESULT":
-            # --- 3. TELA DE RESULTADO / DIAGNÓSTICO ---
+            
             res = test_result[0]
             cat = res.get("category", "inconclusive")
 
@@ -863,7 +863,7 @@ def DaltonismTestView(page: ft.Page) -> ft.View:
                 ],
             )
 
-            # Hero Card de Diagnóstico
+            
             hero_result = ft.Container(
                 bgcolor=COLOR_CARD_BG,
                 border=ft.Border.all(1.2, COLOR_CARD_BORDER),
@@ -917,7 +917,7 @@ def DaltonismTestView(page: ft.Page) -> ft.View:
                 ),
             )
 
-            # Tabela de Escopo e Limitações do Ishihara
+            
             def make_scope_row(condition, detectable, note):
                 badge_bg = "#DCFCE7" if detectable == "Sim" else ("#FEF3C7" if detectable == "Parcialmente" else "#F1F5F9")
                 badge_color = "#15803D" if detectable == "Sim" else ("#B45309" if detectable == "Parcialmente" else "#64748B")
@@ -984,7 +984,7 @@ def DaltonismTestView(page: ft.Page) -> ft.View:
                 ),
             )
 
-            # Aviso de Responsabilidade Médica
+            
             medical_notice = ft.Container(
                 bgcolor="#FFFBEB",
                 border=ft.Border.all(1.2, "#FDE68A"),
@@ -1006,7 +1006,7 @@ def DaltonismTestView(page: ft.Page) -> ft.View:
                 ),
             )
 
-            # Botões de Ação
+            
             def on_retake(_):
                 active_questions[0] = generate_test_questions()
                 current_mode[0] = "TEST"
@@ -1046,7 +1046,7 @@ def DaltonismTestView(page: ft.Page) -> ft.View:
                 action_buttons,
             ])
 
-    # Constrói a visualização
+    
     render()
 
     return ft.View(
@@ -1057,7 +1057,7 @@ def DaltonismTestView(page: ft.Page) -> ft.View:
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         controls=[
             ft.Container(
-                width=400,
+                width=min(420, getattr(page, "width", 400) or 400),
                 padding=ft.Padding.only(left=16, right=16, top=16, bottom=28),
                 content=main_column,
             )

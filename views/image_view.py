@@ -6,6 +6,15 @@ from components.bottom_nav import build_bottom_nav
 from services.image_service import ImageService
 from services.i18n_service import I18nService
 
+try:
+    import tkinter as tk
+    from tkinter import filedialog
+    HAS_TKINTER = True
+except (ImportError, Exception):
+    tk = None
+    filedialog = None
+    HAS_TKINTER = False
+
 class ImageUIController:
     """
     Controlador da tela de Análise por Imagem integrado ao ImageService (OpenCV + KDTree).
@@ -14,10 +23,10 @@ class ImageUIController:
 
     def __init__(self, page: ft.Page):
         self.page = page
-        self.mode = "clique"  # 'clique' ou 'selecao'
+        self.mode = "clique"  
         self.service = ImageService()
 
-        # Estado da imagem e seleção
+        
         self.has_image_loaded = False
         self.has_selected_color = False
         self.has_selected_area = False
@@ -25,27 +34,27 @@ class ImageUIController:
         self.display_w = 360
         self.display_h = 380
 
-        # Alvo e seleção
+        
         self.target_x = 0.0
         self.target_y = 0.0
         self.drag_start = None
         self.drag_cur = None
 
-        # Rastreamento de arrasto contínuo no modo clique
+        
         self._last_drag_time = 0.0
         self._last_drag_pos = None
         self._is_drag_updating = False
         self._reticle_timer = None
 
-        # Dados da cor selecionada (ponto)
+        
         self.point_color_name = ""
         self.point_color_detail = ""
         self.point_color_hex = ""
 
-        # Dados das cores identificadas (área)
+        
         self.area_colors = []
 
-        # Referências aos controles
+        
         self.tab_clique = None
         self.tab_selecao = None
         self.upload_prompt = None
@@ -60,37 +69,66 @@ class ImageUIController:
         self.result_container = None
         self.btn_select_other = None
 
-    def pick_image(self):
-        """Abre o seletor nativo de arquivos de forma assíncrona/thread separada."""
-        def _open():
-            try:
-                import tkinter as tk
-                from tkinter import filedialog
-                root = tk.Tk()
-                root.withdraw()
-                root.attributes("-topmost", True)
-                path = filedialog.askopenfilename(
-                    title="Selecione uma Imagem",
-                    filetypes=[("Imagens", "*.png *.jpg *.jpeg *.bmp *.webp *.heic")],
-                )
-                root.destroy()
-                if path:
-                    # Carrega e processa a imagem em segundo plano
-                    res = self.service.load_image(path)
-                    if res:
-                        # Despacha a atualização visual de volta para o loop principal do Flet
-                        if self.page and hasattr(self.page, "loop") and self.page.loop:
-                            self.page.loop.call_soon_threadsafe(self.apply_loaded_image, res)
-                        else:
-                            self.apply_loaded_image(res)
-            except Exception as e:
-                print(f"Erro na seleção de arquivo: {e}")
+        
+        # Inicializa o FilePicker para ambiente mobile (Android/iOS)
+        self.file_picker = ft.FilePicker()
+        if hasattr(page, "services") and self.file_picker not in page.services:
+            page.services.append(self.file_picker)
 
-        threading.Thread(target=_open, daemon=True).start()
+    def pick_image(self):
+        """Abre o seletor nativo de fotos: Tkinter no desktop (se disponível) ou FilePicker no celular."""
+        if HAS_TKINTER:
+            def _open_desktop():
+                try:
+                    root = tk.Tk()
+                    root.withdraw()
+                    root.attributes("-topmost", True)
+                    path = filedialog.askopenfilename(
+                        title="Selecione uma Imagem",
+                        filetypes=[("Imagens", "*.png *.jpg *.jpeg *.bmp *.webp *.heic")],
+                    )
+                    root.destroy()
+                    if path:
+                        res = self.service.load_image(file_path=path)
+                        if res:
+                            if self.page and hasattr(self.page, "loop") and self.page.loop:
+                                self.page.loop.call_soon_threadsafe(self.apply_loaded_image, res)
+                            else:
+                                self.apply_loaded_image(res)
+                except Exception as e:
+                    print(f"Erro no seletor de arquivos desktop: {e}")
+
+            threading.Thread(target=_open_desktop, daemon=True).start()
+            return
+
+        # No celular (Android/iOS), usa o serviço do FilePicker de forma assíncrona
+        async def _open_mobile():
+            try:
+                files = await self.file_picker.pick_files(
+                    dialog_title="Selecione uma Imagem",
+                    file_type=ft.FilePickerFileType.IMAGE,
+                    allow_multiple=False,
+                    with_data=True,
+                )
+                if files and len(files) > 0:
+                    selected_file = files[0]
+                    file_path = getattr(selected_file, "path", None)
+                    file_bytes = getattr(selected_file, "bytes", None)
+                    res = self.service.load_image(file_path=file_path, image_bytes=file_bytes)
+                    if res:
+                        self.apply_loaded_image(res)
+            except Exception as e:
+                print(f"Erro ao selecionar imagem via FilePicker no celular: {e}")
+
+        if hasattr(self.page, "run_task"):
+            self.page.run_task(_open_mobile)
+        elif self.page and hasattr(self.page, "loop") and self.page.loop:
+            import asyncio
+            asyncio.run_coroutine_threadsafe(_open_mobile(), self.page.loop)
 
     def load_selected_file(self, file_path: str):
         """Carrega a imagem selecionada e prepara a interface."""
-        res = self.service.load_image(file_path)
+        res = self.service.load_image(file_path=file_path)
         if not res:
             return
         if self.page and hasattr(self.page, "loop") and self.page.loop:
@@ -108,7 +146,7 @@ class ImageUIController:
         self.display_w = res["display_width"]
         self.display_h = res["display_height"]
 
-        # Configura imagem e camadas interativas
+        
         if self.image_control:
             self.image_control.src = res["data_uri"]
             self.image_control.width = self.display_w
@@ -391,7 +429,7 @@ class ImageUIController:
             return
 
         if not self.has_image_loaded:
-            # Estado sem imagem carregada
+            
             self.result_container.content = ft.Row(
                 spacing=14,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -439,7 +477,7 @@ class ImageUIController:
 
         if self.mode == "clique":
             if not self.has_selected_color:
-                # Imagem carregada, aguardando toque
+                
                 self.result_container.content = ft.Row(
                     spacing=14,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -484,7 +522,7 @@ class ImageUIController:
                     ],
                 )
             else:
-                # Cor identificada no ponto
+                
                 self.result_container.content = ft.Row(
                     spacing=14,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -523,7 +561,7 @@ class ImageUIController:
                     ],
                 )
         else:
-            # Modo Seleção: Cores uma embaixo da outra
+            
             if not self.has_selected_area or not self.area_colors:
                 self.result_container.content = ft.Row(
                     spacing=14,
@@ -645,11 +683,11 @@ def ImageView(page: ft.Page) -> ft.View:
     ctrl = ImageUIController(page)
 
     def navigate_away(route: str):
-        # Remove a imagem e limpa a memória ao sair da tela
+        
         ctrl.clear_image()
         page.navigate(route)
 
-    # 1. Topo: Botão Voltar + Breadcrumb
+    
     header = ft.Row(
         spacing=14,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -681,7 +719,7 @@ def ImageView(page: ft.Page) -> ft.View:
         ],
     )
 
-    # 2. Título & Subtítulo
+    
     title_section = ft.Column(
         spacing=4,
         controls=[
@@ -699,7 +737,7 @@ def ImageView(page: ft.Page) -> ft.View:
         ],
     )
 
-    # 3. Seletor de Modo (Clique vs Seleção)
+    
     ctrl.tab_clique = ft.Container(
         expand=True,
         padding=ft.Padding.symmetric(vertical=9),
@@ -740,7 +778,7 @@ def ImageView(page: ft.Page) -> ft.View:
         ),
     )
 
-    # 4. Viewport da Imagem
+    
     ctrl.upload_prompt = ft.GestureDetector(
         mouse_cursor=ft.MouseCursor.CLICK,
         on_tap=lambda _: ctrl.pick_image(),
@@ -788,7 +826,7 @@ def ImageView(page: ft.Page) -> ft.View:
         visible=False,
     )
 
-    # Badge Superior Esquerdo ((•)) TOQUE EM UM PONTO
+    
     ctrl.badge_text = ft.Text(
         "TOQUE EM UM PONTO",
         size=10,
@@ -813,7 +851,7 @@ def ImageView(page: ft.Page) -> ft.View:
         ),
     )
 
-    # Mira de seleção no ponto (vazada, sem ponto central obstrutivo, com sombra sutil)
+    
     ctrl.target_ring = ft.Container(
         width=32,
         height=32,
@@ -828,7 +866,7 @@ def ImageView(page: ft.Page) -> ft.View:
         visible=False,
     )
 
-    # Caixa de seleção de área
+    
     ctrl.selection_box = ft.Container(
         border_radius=8,
         border=ft.Border.all(2.0, "#FFFFFF"),
@@ -836,7 +874,7 @@ def ImageView(page: ft.Page) -> ft.View:
         visible=False,
     )
 
-    # Pílula de instrução inferior
+    
     ctrl.instruction_text = ft.Text(
         "Toque no ponto para identificar a cor",
         size=11.5,
@@ -855,37 +893,49 @@ def ImageView(page: ft.Page) -> ft.View:
         ),
     )
 
-    # Handlers de Gestos
+    
+    def _get_coords(e):
+        pos = getattr(e, "local_position", None)
+        if pos is not None and hasattr(pos, "x") and hasattr(pos, "y"):
+            return float(pos.x), float(pos.y)
+        if hasattr(e, "local_x") and e.local_x is not None:
+            return float(e.local_x), float(e.local_y)
+        return None
+
     def on_tap_down(e: ft.TapEvent):
         if not ctrl.has_image_loaded:
             ctrl.pick_image()
             return
-        if ctrl.mode == "clique" and e.local_position:
-            ctrl.handle_tap_down(e.local_position.x, e.local_position.y)
+        coords = _get_coords(e)
+        if ctrl.mode == "clique" and coords:
+            ctrl.handle_tap_down(coords[0], coords[1])
 
     def on_tap_up(e: ft.TapEvent):
         if not ctrl.has_image_loaded:
             return
-        if ctrl.mode == "clique" and e.local_position:
-            ctrl.handle_tap_up(e.local_position.x, e.local_position.y)
+        coords = _get_coords(e)
+        if ctrl.mode == "clique" and coords:
+            ctrl.handle_tap_up(coords[0], coords[1])
 
     def on_pan_start(e: ft.DragStartEvent):
         if not ctrl.has_image_loaded:
             return
-        if e.local_position:
+        coords = _get_coords(e)
+        if coords:
             if ctrl.mode == "clique":
-                ctrl.handle_tap_down(e.local_position.x, e.local_position.y)
+                ctrl.handle_tap_down(coords[0], coords[1])
             elif ctrl.mode == "selecao":
-                ctrl.handle_pan_start(e.local_position.x, e.local_position.y)
+                ctrl.handle_pan_start(coords[0], coords[1])
 
     def on_pan_update(e: ft.DragUpdateEvent):
         if not ctrl.has_image_loaded:
             return
-        if e.local_position:
+        coords = _get_coords(e)
+        if coords:
             if ctrl.mode == "clique":
-                ctrl.handle_drag_point(e.local_position.x, e.local_position.y)
+                ctrl.handle_drag_point(coords[0], coords[1])
             elif ctrl.mode == "selecao":
-                ctrl.handle_pan_update(e.local_position.x, e.local_position.y)
+                ctrl.handle_pan_update(coords[0], coords[1])
 
     def on_pan_end(e: ft.DragEndEvent):
         if not ctrl.has_image_loaded:
@@ -927,7 +977,7 @@ def ImageView(page: ft.Page) -> ft.View:
         ),
     )
 
-    # 5. Card de Resultado de Cor
+    
     ctrl.result_container = ft.Container(
         bgcolor=COLOR_CARD_BG,
         border=ft.Border.all(1.2, COLOR_CARD_BORDER),
@@ -948,7 +998,7 @@ def ImageView(page: ft.Page) -> ft.View:
         color=COLOR_TEXT_MUTED,
     )
 
-    # 6. Botão "Selecionar outra imagem"
+    
     ctrl.btn_select_other = ft.GestureDetector(
         mouse_cursor=ft.MouseCursor.CLICK,
         on_tap=lambda _: ctrl.pick_image(),
@@ -979,11 +1029,11 @@ def ImageView(page: ft.Page) -> ft.View:
         ),
     )
 
-    # 7. Barra de Navegação Inferior
+    
     bottom_nav = build_bottom_nav(page, active_tab="image")
 
     body_content = ft.Container(
-        width=400,
+        width=min(420, getattr(page, "width", 400) or 400),
         padding=ft.Padding.only(left=20, right=20, top=14, bottom=10),
         content=ft.Column(
             spacing=14,

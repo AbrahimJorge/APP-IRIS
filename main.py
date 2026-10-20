@@ -1,5 +1,6 @@
 import ctypes
 import flet as ft
+
 from theme import COLOR_BG
 from views.home_view import HomeView
 from views.camera_view import CameraView
@@ -8,38 +9,39 @@ from views.settings_view import SettingsView
 from views.daltonism_test_view import DaltonismTestView
 from services.i18n_service import I18nService
 
-try:
-    # Ativa Per-Monitor DPI Aware logo no início do processo:
-    # Garante proporções nítidas e sincronia 1:1 absoluta com as coordenadas do mouse (pynput e MSS)
-    ctypes.windll.shcore.SetProcessDpiAwareness(2)
-except Exception:
+if hasattr(ctypes, "windll"):
     try:
-        ctypes.windll.user32.SetProcessDPIAware()
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
     except Exception:
-        pass
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
 
 
 def main(page: ft.Page):
     i18n = I18nService.get_instance()
 
-    # Configurações gerais da página e janela
     page.title = i18n.t("app_title")
     page.theme_mode = ft.ThemeMode.LIGHT
     page.bgcolor = COLOR_BG
 
-    # Dimensões da janela (estilo mobile moderno)
-    page.window.width = 415
-    page.window.height = 860
-    page.window.min_width = 360
-    page.window.min_height = 680
+    if hasattr(page, "window") and page.window:
+        try:
+            page.window.width = 415
+            page.window.height = 860
+            page.window.min_width = 360
+            page.window.min_height = 680
+        except Exception:
+            pass
 
     def route_change(e=None):
         page.views.clear()
 
-        # Adiciona a tela principal como base
+
         page.views.append(HomeView(page))
 
-        # Roteamento para as telas secundárias
+
         if page.route == "/camera":
             page.views.append(CameraView(page))
         elif page.route == "/image":
@@ -78,7 +80,6 @@ def main(page: ft.Page):
 
     i18n.add_listener(on_language_changed)
 
-    # Carrega a visualização inicial
     route_change()
 
 

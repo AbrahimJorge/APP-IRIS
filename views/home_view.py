@@ -1,6 +1,18 @@
 import flet as ft
 from theme import *
-from services.screen_service import ScreenFloatingService
+try:
+    from services.screen_service import ScreenFloatingService
+except Exception:
+    class ScreenFloatingService:
+        is_available = False
+        is_running = False
+        @classmethod
+        def get_instance(cls):
+            return cls()
+        def start(self, *a, **kw): pass
+        def stop(self): pass
+        def shutdown(self): pass
+
 from services.i18n_service import I18nService
 
 def build_top_button(icon: str, label: str, on_click):
@@ -53,7 +65,7 @@ def build_feature_card(icon: str, title: str, description: str, on_click):
             spacing=14,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
-                # Ícone em container suave
+                
                 ft.Container(
                     width=48,
                     height=48,
@@ -62,7 +74,7 @@ def build_feature_card(icon: str, title: str, description: str, on_click):
                     alignment=ft.Alignment.CENTER,
                     content=ft.Icon(icon, color=COLOR_PRIMARY, size=24),
                 ),
-                # Textos
+                
                 ft.Column(
                     spacing=3,
                     expand=True,
@@ -81,7 +93,7 @@ def build_feature_card(icon: str, title: str, description: str, on_click):
                         ),
                     ],
                 ),
-                # Seta para a direita
+                
                 ft.Icon(
                     ft.Icons.CHEVRON_RIGHT_ROUNDED,
                     color=COLOR_TEXT_CHEVRON,
@@ -96,7 +108,7 @@ def HomeView(page: ft.Page) -> ft.View:
     """Retorna a tela principal do IRIS."""
     i18n = I18nService.get_instance()
 
-    # Topo com Teste e Configurações
+    
     header_bar = ft.Row(
         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
         vertical_alignment=ft.CrossAxisAlignment.START,
@@ -114,7 +126,7 @@ def HomeView(page: ft.Page) -> ft.View:
         ],
     )
 
-    # Hero com Logo e Slogan
+    
     hero_section = ft.Column(
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         spacing=8,
@@ -143,7 +155,7 @@ def HomeView(page: ft.Page) -> ft.View:
         ],
     )
 
-    # Título da Seção
+    
     section_title = ft.Container(
         padding=ft.Padding.only(left=2, top=6),
         content=ft.Text(
@@ -155,36 +167,50 @@ def HomeView(page: ft.Page) -> ft.View:
         ),
     )
 
-    # Serviço do Menu Flutuante
+    
     service = ScreenFloatingService.get_instance()
+    is_screen_supported = getattr(service, "is_available", False)
+
+    if not is_screen_supported:
+        initial_desc = "Exclusivo para computador (Desktop)."
+    elif service.is_running:
+        initial_desc = i18n.t("home_screen_desc_active")
+    else:
+        initial_desc = i18n.t("home_screen_desc_idle")
 
     tela_desc = ft.Text(
-        i18n.t("home_screen_desc_active")
-        if service.is_running
-        else i18n.t("home_screen_desc_idle"),
+        initial_desc,
         size=12.5,
         color="#059669" if service.is_running else COLOR_TEXT_MUTED,
         weight=ft.FontWeight.W_500 if service.is_running else ft.FontWeight.W_400,
     )
 
     tela_badge = ft.Container(
-        content=ft.Row(
-            tight=True,
-            spacing=4,
-            controls=[
-                ft.Container(width=7, height=7, border_radius=3.5, bgcolor="#10B981"),
-                ft.Text(i18n.t("home_screen_badge_on"), size=10, weight=ft.FontWeight.W_800, color="#059669"),
-            ],
+        content=(
+            ft.Row(
+                tight=True,
+                spacing=4,
+                controls=[
+                    ft.Container(width=7, height=7, border_radius=3.5, bgcolor="#10B981"),
+                    ft.Text(i18n.t("home_screen_badge_on"), size=10, weight=ft.FontWeight.W_800, color="#059669"),
+                ],
+            )
+            if service.is_running
+            else ft.Icon(
+                ft.Icons.CHEVRON_RIGHT_ROUNDED,
+                color=COLOR_TEXT_CHEVRON,
+                size=20,
+            )
         )
-        if service.is_running
-        else ft.Icon(
-            ft.Icons.CHEVRON_RIGHT_ROUNDED,
-            color=COLOR_TEXT_CHEVRON,
-            size=20,
-        ),
     )
 
     def refresh_tela_card():
+        if not is_screen_supported:
+            tela_desc.value = "Exclusivo para computador (Desktop)."
+            tela_desc.color = COLOR_TEXT_MUTED
+            tela_desc.weight = ft.FontWeight.W_400
+            return
+
         is_on = service.is_running
         tela_desc.value = (
             i18n.t("home_screen_desc_active")
@@ -221,6 +247,17 @@ def HomeView(page: ft.Page) -> ft.View:
             refresh_tela_card()
 
     def toggle_tela(_):
+        if not is_screen_supported:
+            page.snack_bar = ft.SnackBar(
+                content=ft.Text("O menu flutuante sobre outros apps é um recurso exclusivo para computador."),
+                open=True,
+            )
+            try:
+                page.update()
+            except Exception:
+                pass
+            return
+
         if service.is_running:
             service.stop()
             refresh_tela_card()
@@ -275,7 +312,7 @@ def HomeView(page: ft.Page) -> ft.View:
         ),
     )
 
-    # Lista de Cards
+    
     cards_section = ft.Column(
         spacing=12,
         controls=[
@@ -295,7 +332,7 @@ def HomeView(page: ft.Page) -> ft.View:
         ],
     )
 
-    # Rodapé institucional
+    
     footer = ft.Row(
         alignment=ft.MainAxisAlignment.CENTER,
         spacing=6,
@@ -315,10 +352,10 @@ def HomeView(page: ft.Page) -> ft.View:
         ],
     )
 
-    # Corpo centralizado e com largura máxima para ficar elegante em mobile ou desktop
+    
     body_content = ft.Container(
-        width=400,
-        padding=ft.Padding.only(left=22, right=22, top=16, bottom=24),
+        width=min(420, getattr(page, "width", 400) or 400),
+        padding=ft.Padding.only(left=20, right=20, top=16, bottom=24),
         content=ft.Column(
             spacing=20,
             horizontal_alignment=ft.CrossAxisAlignment.STRETCH,

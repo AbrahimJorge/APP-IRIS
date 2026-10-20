@@ -1,28 +1,42 @@
 import ctypes
 import threading
 import time
-import tkinter as tk
-from PIL import Image, ImageTk
 import numpy as np
-from pynput import mouse
+
+try:
+    import tkinter as tk
+    from PIL import Image, ImageTk, ImageGrab
+    from pynput import mouse
+    import mss
+    DESKTOP_SCREEN_AVAILABLE = True
+except (ImportError, Exception):
+    tk = None
+    Image = None
+    ImageTk = None
+    ImageGrab = None
+    mouse = None
+    mss = None
+    DESKTOP_SCREEN_AVAILABLE = False
+
 from services.color_dataset import ColorDatasetService
 from services.i18n_service import I18nService
 from services.constants.screen_constants import *
 
-# Garante DPI Aware (Per-Monitor v2/v1) antes de qualquer janela ser criada:
-# Assegura que coordenadas físicas do mouse (pynput), Tkinter e MSS sejam rigorosamente 1:1,
-# impedindo que as janelas fiquem desproporcionais ou sofram distorções de clique.
-try:
-    ctypes.windll.shcore.SetProcessDpiAwareness(2)
-except Exception:
+
+if hasattr(ctypes, "windll"):
     try:
-        ctypes.windll.user32.SetProcessDPIAware()
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
     except Exception:
-        pass
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
 
 
 def _make_window_click_through(win):
-    """Torna a janela 100% transparente a eventos de mouse (o cursor do Windows nunca some nem trava)."""
+    """Torna a janela 100% transparente a eventos de mouse (Windows Desktop)."""
+    if not hasattr(ctypes, "windll") or not win:
+        return
     try:
         win.update_idletasks()
         hwnd = ctypes.windll.user32.GetParent(win.winfo_id())
@@ -37,18 +51,11 @@ def _make_window_click_through(win):
 class ScreenFloatingService:
     """
     Serviço do Menu Flutuante Suspenso (Tela) para identificação de cores do desktop/tela.
-    Proporções elegantes, estáveis e nativas:
-      - Botão suspenso circular de 56x56 px (tamanho ideal, estável, sem distorção)
-      - Menu popup de opções ("Clique" e "Seleção") com 236x152 px
-      - Painel de resultado adaptável:
-          * Modo Clique: Pill com 236x60 px (Cor em cima, cor do dataset embaixo e do lado o código)
-          * Modo Seleção: Lista vertical com as cores predominantes da área selecionada (% e código)
-      - Mira vazada (hollow ring) de 32x32 px que segue o mouse com precisão 1:1
-      - Cursor do mouse visível e sem interferência em todos os modos
-      - Execução persistente em thread Tkinter dedicada
+    Recurso exclusivo para ambiente Desktop.
     """
 
     _instance = None
+    is_available = DESKTOP_SCREEN_AVAILABLE
 
     @classmethod
     def get_instance(cls):
@@ -57,18 +64,27 @@ class ScreenFloatingService:
         return cls._instance
 
     def __init__(self):
+        self.is_available = DESKTOP_SCREEN_AVAILABLE
+        self.is_running = False
+        self.mode = None
+        self.is_menu_open = False
+        self.dock_side = "right"
+        self.on_status_change = None
+
+        if not DESKTOP_SCREEN_AVAILABLE:
+            return
         self.dataset = ColorDatasetService()
         self.dataset.load()
 
         self.is_running = False
-        self.mode = None  # None, 'clique', ou 'selecao'
+        self.mode = None  
         self.is_menu_open = False
-        self.dock_side = "right"  # 'right' ou 'left'
+        self.dock_side = "right"  
 
-        # Callbacks para sincronização com o Flet
+        
         self.on_status_change = None
 
-        # Thread e janelas Tkinter persistentes
+        
         self.tk_thread = None
         self._thread_initialized = threading.Event()
         self.root = None
@@ -78,11 +94,11 @@ class ScreenFloatingService:
         self.reticle_win = None
         self.overlay_win = None
 
-        # Imagens e Timers
+        
         self._eye_photo = None
         self._reticle_hide_timer = None
 
-        # Proporções elegantes e fixas
+        
         self.btn_size = 56
         self.opt_w = 280
         self.opt_h = 178
@@ -90,29 +106,29 @@ class ScreenFloatingService:
         self.pill_h = 60
         self.ret_size = 32
 
-        # Internacionalização (I18n)
+        
         self.i18n = I18nService.get_instance()
         self.i18n.add_listener(self._on_language_changed)
 
-        # Dados da cor atual identificada
+        
         self.current_hex = "#1D5CD4"
         self.current_name = self.i18n.t("waiting_click")
         self.current_detail = self.i18n.t("waiting_click_desc")
 
-        # Cores da área selecionada (modo seleção)
+        
         self.area_colors = []
 
-        # Coordenadas do botão flutuante
+        
         self.btn_x = 0
         self.btn_y = 0
         self.drag_start_x = 0
         self.drag_start_y = 0
         self.is_dragging_btn = False
 
-        # Global Mouse Listener
+        
         self.mouse_listener = None
 
-        # Seleção de área
+        
         self.sel_start_x = None
         self.sel_start_y = None
         self.sel_cur_x = 0
@@ -122,6 +138,8 @@ class ScreenFloatingService:
 
     def start(self, on_status_change=None):
         """Ativa o menu flutuante suspenso."""
+        if not self.is_available:
+            return
         self.on_status_change = on_status_change
 
         if self.current_name in ("Aguardando clique", "Waiting for click", ""):
@@ -267,9 +285,9 @@ class ScreenFloatingService:
             pass
         self.root = None
 
-    # ==========================================
-    # 1. BOTÃO SUSPENSO FLUTUANTE (Ícone IRIS)
-    # ==========================================
+    
+    
+    
     def _build_button_window(self):
         self.btn_win = tk.Toplevel(self.root)
         self.btn_win.overrideredirect(True)
@@ -385,9 +403,9 @@ class ScreenFloatingService:
             if self.btn_win:
                 self.btn_win.attributes("-alpha", 0.75)
 
-    # ==========================================
-    # 2. MENU POPUP DE OPÇÕES (Clique e Seleção)
-    # ==========================================
+    
+    
+    
     def _build_options_window(self):
         self.options_win = tk.Toplevel(self.root)
         self.options_win.overrideredirect(True)
@@ -426,7 +444,7 @@ class ScreenFloatingService:
         f_desc = ("Segoe UI", 8)
         text_w = self.opt_w - 76
 
-        # Medição prévia das alturas dos textos para calcular altura responsiva exata
+        
         t1_temp = self.opt_canvas.create_text(62, 10, text=title1, font=f_title, anchor="nw")
         t1_box = self.opt_canvas.bbox(t1_temp)
         t1_h = (t1_box[3] - t1_box[1]) if t1_box else 18
@@ -445,7 +463,7 @@ class ScreenFloatingService:
 
         self.opt_canvas.delete("all")
 
-        # Alturas dinâmicas com respiro generoso (evita qualquer corte de texto)
+        
         card1_h = max(72, 14 + t1_h + 3 + d1_h + 16)
         card2_h = max(72, 14 + t2_h + 3 + d2_h + 16)
 
@@ -455,12 +473,12 @@ class ScreenFloatingService:
 
         self.opt_canvas.config(width=self.opt_w, height=self.opt_h)
 
-        # Fundo do menu popup
+        
         self._draw_rounded_rect(
             self.opt_canvas, 2, 2, self.opt_w - 2, self.opt_h - 2, radius=16, fill="#FFFFFF", outline="#E2E8F0", width=1.5
         )
 
-        # Item 1: "Clique"
+        
         clique_bg = "#EEF4FE" if is_clique_active else "#F8FAFC"
         clique_border = "#1D5CD4" if is_clique_active else "#E2E8F0"
         self._draw_rounded_rect(
@@ -482,7 +500,7 @@ class ScreenFloatingService:
             font=f_desc, fill="#64748B", anchor="nw", width=text_w
         )
 
-        # Item 2: "Seleção"
+        
         sel_bg = "#EEF4FE" if is_sel_active else "#F8FAFC"
         sel_border = "#1D5CD4" if is_sel_active else "#E2E8F0"
         self._draw_rounded_rect(
@@ -599,9 +617,9 @@ class ScreenFloatingService:
         if self.btn_win and not self.is_menu_open:
             self.btn_win.attributes("-alpha", 0.75)
 
-    # ==========================================
-    # 3. BARRINHA FLUTUANTE DE COR / LISTA (Pill)
-    # ==========================================
+    
+    
+    
     def _build_pill_window(self):
         self.pill_win = tk.Toplevel(self.root)
         self.pill_win.overrideredirect(True)
@@ -626,9 +644,9 @@ class ScreenFloatingService:
     def _render_pill_card(self):
         self.pill_canvas.delete("all")
 
-        # ----------------------------------------------------
-        # CASO 1: Modo Seleção com Cores Encontradas (Lista Vertical)
-        # ----------------------------------------------------
+        
+        
+        
         if self.mode == "selecao" and self.area_colors:
             num_items = len(self.area_colors)
             self.pill_w = 272
@@ -637,33 +655,33 @@ class ScreenFloatingService:
             self.pill_h = 44 + num_items * row_step
             self.pill_canvas.config(width=self.pill_w, height=self.pill_h)
 
-            # Card de fundo branco arredondado
+            
             self._draw_rounded_rect(
                 self.pill_canvas, 2, 2, self.pill_w - 2, self.pill_h - 2, radius=16, fill="#FFFFFF", outline="#E2E8F0", width=1.5
             )
 
-            # Título do cabeçalho
+            
             self.pill_canvas.create_text(
                 16, 20, text=self.i18n.t("area_colors_title").upper(),
                 font=("Segoe UI", 8, "bold"), fill="#64748B", anchor="w"
             )
 
-            # Lista vertical: Cor em cima, cor do dataset embaixo e do lado o código
+            
             for i, item in enumerate(self.area_colors):
                 y = 36 + i * row_step
 
-                # Fundo do item (60px de altura com amplo respiro)
+                
                 self._draw_rounded_rect(
                     self.pill_canvas, 8, y, self.pill_w - 8, y + item_h, radius=12, fill="#F8FAFC", outline="#E2E8F0", width=1
                 )
 
-                # Amostra quadrada da cor (36x36px centralizada verticalmente)
+                
                 swatch_y = y + (item_h - 36) // 2
                 self._draw_rounded_rect(
                     self.pill_canvas, 16, swatch_y, 52, swatch_y + 36, radius=9, fill=item["hex"], outline="#CBD5E1", width=1
                 )
 
-                # Textos: Cor em cima, cor do dataset embaixo e do lado o código
+                
                 t_id = self.pill_canvas.create_text(
                     58, y + 8, text=item["name"],
                     font=("Segoe UI", 10, "bold"), fill="#0F172A", anchor="nw"
@@ -675,7 +693,7 @@ class ScreenFloatingService:
                     font=("Segoe UI", 7), fill="#64748B", anchor="nw", width=self.pill_w - 118
                 )
 
-                # Badge de porcentagem à direita
+                
                 badge_w = 40
                 badge_h = 24
                 bx2 = self.pill_w - 14
@@ -689,9 +707,9 @@ class ScreenFloatingService:
                     font=("Segoe UI", 8, "bold"), fill="#1D5CD4", anchor="center"
                 )
 
-        # ----------------------------------------------------
-        # CASO 2: Modo Seleção Inicial (Aguardando marcar área)
-        # ----------------------------------------------------
+        
+        
+        
         elif self.mode == "selecao" and not self.area_colors:
             title_text = self.i18n.t("select_area_hint")
             detail_text = self.i18n.t("drag_hint")
@@ -716,7 +734,7 @@ class ScreenFloatingService:
                 self.pill_canvas, 2, 2, self.pill_w - 2, self.pill_h - 2, radius=20, fill="#FFFFFF", outline="#E2E8F0", width=1.5
             )
 
-            # Ícone centralizado na vertical em 80px (y = 22..58)
+            
             self.pill_canvas.create_oval(14, 22, 50, 58, fill="#EEF4FE", outline="#D0E1FD", width=1)
             self.pill_canvas.create_text(
                 32, 40, text="⬚", font=("Segoe UI", 13, "bold"), fill="#1D5CD4", anchor="center"
@@ -733,9 +751,9 @@ class ScreenFloatingService:
                 font=f_detail, fill="#64748B", anchor="nw", width=self.pill_w - 68
             )
 
-        # ----------------------------------------------------
-        # CASO 3: Modo Clique (Cor Única Identificada)
-        # ----------------------------------------------------
+        
+        
+        
         else:
             if self.current_name in ("Aguardando clique", "Waiting for click", ""):
                 title_text = self.i18n.t("waiting_click")
@@ -747,7 +765,7 @@ class ScreenFloatingService:
             f_title = ("Segoe UI", 10, "bold")
             f_detail = ("Segoe UI", 7)
 
-            # Mede largura e altura responsiva das palavras
+            
             temp_t = self.pill_canvas.create_text(58, 22, text=title_text, font=f_title, anchor="nw")
             box_t = self.pill_canvas.bbox(temp_t)
             w_t = (box_t[2] - box_t[0]) if box_t else 120
@@ -758,9 +776,9 @@ class ScreenFloatingService:
             h_d_bottom = box_d[3] if box_d else 54
             self.pill_canvas.delete("all")
 
-            # Largura responsiva (mínimo 240, máximo 360)
+            
             self.pill_w = max(240, min(360, 58 + max(w_t, w_d) + 24))
-            # Altura responsiva (mínimo 80, expande suavemente se houver mais linhas)
+            
             self.pill_h = max(80, h_d_bottom + 16)
             self.pill_canvas.config(width=self.pill_w, height=self.pill_h)
 
@@ -768,13 +786,13 @@ class ScreenFloatingService:
                 self.pill_canvas, 2, 2, self.pill_w - 2, self.pill_h - 2, radius=20, fill="#FFFFFF", outline="#E2E8F0", width=1.5
             )
 
-            # Amostra quadrada (38x38 px centralizada na vertical em 80px)
+            
             swatch_top = (self.pill_h - 38) // 2
             self._draw_rounded_rect(
                 self.pill_canvas, 12, swatch_top, 50, swatch_top + 38, radius=9, fill=self.current_hex, outline="#CBD5E1", width=1
             )
 
-            # Cor em cima (Família)
+            
             t_id = self.pill_canvas.create_text(
                 58, 22, text=title_text,
                 font=f_title, fill="#0F172A", anchor="nw"
@@ -782,7 +800,7 @@ class ScreenFloatingService:
             t_box = self.pill_canvas.bbox(t_id)
             d_y = (t_box[3] + 4) if t_box else 42
 
-            # Cor do dataset embaixo e do lado o código
+            
             self.pill_canvas.create_text(
                 58, d_y, text=detail_text,
                 font=f_detail, fill="#64748B", anchor="nw", width=self.pill_w - 68
@@ -829,9 +847,9 @@ class ScreenFloatingService:
             self.current_detail = f"{colors[0]['specific_name']} · {colors[0]['hex']}"
         self.show_pill()
 
-    # ==========================================
-    # 4. MIRA CIRCULAR NA TELA (Modo Clique)
-    # ==========================================
+    
+    
+    
     def _build_reticle_window(self):
         self.reticle_win = tk.Toplevel(self.root)
         self.reticle_win.overrideredirect(True)
@@ -962,9 +980,9 @@ class ScreenFloatingService:
         if is_final:
             self._show_reticle_at(x, y)
 
-    # ==========================================
-    # 5. OVERLAY DE SELEÇÃO DE ÁREA (Modo Seleção)
-    # ==========================================
+    
+    
+    
     def _build_overlay_window(self):
         self.overlay_win = tk.Toplevel(self.root)
         self.overlay_win.overrideredirect(True)
@@ -1091,18 +1109,18 @@ class ScreenFloatingService:
 
             pixels_rgb = None
 
-            # 1. Tenta captura com MSS (coordenadas 1:1 nativas)
+            
             try:
                 import mss
                 with mss.mss() as sct:
                     region = {"top": y, "left": x, "width": w, "height": h}
                     shot = sct.grab(region)
-                    arr = np.array(shot)  # BGRA
+                    arr = np.array(shot)  
                     pixels_rgb = arr[:, :, [2, 1, 0]].reshape(-1, 3)
             except Exception:
                 pass
 
-            # 2. Fallback com ImageGrab
+            
             if pixels_rgb is None or len(pixels_rgb) == 0:
                 try:
                     from PIL import ImageGrab
@@ -1129,7 +1147,7 @@ class ScreenFloatingService:
                 top_colors = []
                 for label, count in counter.most_common(5):
                     pct = (count / total) * 100.0
-                    # Ignora ruídos menores que 3% caso já tenha cores significativas
+                    
                     if pct < 3.0 and len(top_colors) >= 1:
                         continue
                     sel = labels == label
@@ -1149,12 +1167,12 @@ class ScreenFloatingService:
         except Exception as e:
             print(f"Erro na análise de área da tela: {e}")
 
-    # ==========================================
-    # UTILITÁRIOS DE CAPTURA & DESENHO
-    # ==========================================
+    
+    
+    
     def _grab_screen_pixel(self, x: int, y: int) -> tuple[int, int, int]:
         """Captura cor RGB de um único pixel na tela de forma 1:1 (ordem R, G, B correta)."""
-        # 1. Tenta MSS
+        
         try:
             import mss
             with mss.mss() as sct:
@@ -1165,7 +1183,7 @@ class ScreenFloatingService:
         except Exception:
             pass
 
-        # 2. Tenta ImageGrab
+        
         try:
             from PIL import ImageGrab
             im = ImageGrab.grab(bbox=(x, y, x + 1, y + 1))
@@ -1174,7 +1192,7 @@ class ScreenFloatingService:
         except Exception:
             pass
 
-        # 3. Fallback GDI GetPixel (Windows COLORREF é 0x00bbggrr)
+        
         try:
             hdc = ctypes.windll.user32.GetDC(0)
             pixel = ctypes.windll.gdi32.GetPixel(hdc, x, y)

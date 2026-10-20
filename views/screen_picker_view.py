@@ -1,13 +1,25 @@
 import flet as ft
 from theme import *
 from components.bottom_nav import build_bottom_nav
-from services.screen_service import ScreenFloatingService
+
+try:
+    from services.screen_service import ScreenFloatingService
+except Exception:
+    class ScreenFloatingService:
+        is_available = False
+        is_running = False
+        @classmethod
+        def get_instance(cls):
+            return cls()
+        def start(self, *a, **kw): pass
+        def stop(self): pass
+        def shutdown(self): pass
 
 def ScreenPickerView(page: ft.Page) -> ft.View:
     """Tela de Captura de Tela (Menu Flutuante / Suspenso)."""
     service = ScreenFloatingService.get_instance()
 
-    # 1. Topo: Botão Voltar + Breadcrumb
+    
     header = ft.Row(
         spacing=14,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -39,7 +51,7 @@ def ScreenPickerView(page: ft.Page) -> ft.View:
         ],
     )
 
-    # 2. Título & Subtítulo
+    
     title_section = ft.Column(
         spacing=4,
         controls=[
@@ -57,7 +69,7 @@ def ScreenPickerView(page: ft.Page) -> ft.View:
         ],
     )
 
-    # Referências para atualização dinâmica de status
+    
     status_indicator = ft.Container(
         width=10,
         height=10,
@@ -133,6 +145,17 @@ def ScreenPickerView(page: ft.Page) -> ft.View:
             refresh_ui_state(active)
 
     def toggle_floating_service(e=None):
+        if not getattr(service, "is_available", False):
+            page.snack_bar = ft.SnackBar(
+                content=ft.Text("O menu flutuante suspenso está disponível apenas no computador."),
+                open=True,
+            )
+            try:
+                page.update()
+            except Exception:
+                pass
+            return
+
         if service.is_running:
             service.stop()
             refresh_ui_state(False)
@@ -140,7 +163,7 @@ def ScreenPickerView(page: ft.Page) -> ft.View:
             service.start(on_status_change=on_status_changed)
             refresh_ui_state(True)
 
-    # 3. Card Principal de Controle do Menu Suspenso
+    
     main_control_card = ft.Container(
         bgcolor=COLOR_CARD_BG,
         border=ft.Border.all(1.2, COLOR_CARD_BORDER),
@@ -156,7 +179,7 @@ def ScreenPickerView(page: ft.Page) -> ft.View:
             spacing=16,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
-                # Ilustração do ícone suspenso
+                
                 ft.Container(
                     width=72,
                     height=72,
@@ -171,13 +194,13 @@ def ScreenPickerView(page: ft.Page) -> ft.View:
                         offset=ft.Offset(0, 4),
                     ),
                     content=ft.Image(
-                        src="assets/floating_eye.png",
+                        src="floating_eye.png",
                         width=60,
                         height=60,
                         fit=ft.BoxFit.CONTAIN,
                     ),
                 ),
-                # Badge de Status Ativo / Desativado
+                
                 ft.Container(
                     padding=ft.Padding.symmetric(horizontal=12, vertical=6),
                     border_radius=12,
@@ -189,14 +212,14 @@ def ScreenPickerView(page: ft.Page) -> ft.View:
                         controls=[status_indicator, status_label],
                     ),
                 ),
-                # Texto explicativo
+                
                 ft.Text(
                     "O menu suspenso flutua sobre qualquer aplicativo no seu computador, permitindo identificar cores da tela em tempo real.",
                     size=12.5,
                     color=COLOR_TEXT_MUTED,
                     text_align=ft.TextAlign.CENTER,
                 ),
-                # Botão de Ação
+                
                 ft.GestureDetector(
                     mouse_cursor=ft.MouseCursor.CLICK,
                     on_tap=toggle_floating_service,
@@ -206,7 +229,7 @@ def ScreenPickerView(page: ft.Page) -> ft.View:
         ),
     )
 
-    # 4. Seção "Como Funciona" (Fiel ao protótipo de 3 etapas)
+    
     def build_step_item(num: str, title: str, desc: str, icon: str):
         return ft.Container(
             padding=ft.Padding.all(14),
@@ -274,7 +297,7 @@ def ScreenPickerView(page: ft.Page) -> ft.View:
         ],
     )
 
-    # 5. Dica de Uso
+    
     tip_pill = ft.Container(
         padding=ft.Padding.symmetric(horizontal=14, vertical=10),
         border_radius=12,
@@ -294,11 +317,11 @@ def ScreenPickerView(page: ft.Page) -> ft.View:
         ),
     )
 
-    # 6. Barra de Navegação Inferior
+    
     bottom_nav = build_bottom_nav(page, active_tab="screen")
 
     body_content = ft.Container(
-        width=400,
+        width=min(420, getattr(page, "width", 400) or 400),
         padding=ft.Padding.only(left=20, right=20, top=14, bottom=12),
         content=ft.Column(
             spacing=16,

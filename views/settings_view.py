@@ -6,7 +6,7 @@ from services.i18n_service import I18nService
 def SettingsView(page: ft.Page) -> ft.View:
     i18n = I18nService.get_instance()
 
-    # Container principal que conterá o layout dinamicamente atualizado
+    
     main_column = ft.Column(spacing=20)
 
     def select_language(lang: str):
@@ -77,7 +77,7 @@ def SettingsView(page: ft.Page) -> ft.View:
     def build_layout():
         cur_lang = i18n.get_language()
 
-        # 1. Top Bar com Botão Voltar e Breadcrumb
+        
         top_bar = ft.Row(
             spacing=14,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -106,7 +106,7 @@ def SettingsView(page: ft.Page) -> ft.View:
             ],
         )
 
-        # 2. Título da Página e Subtítulo
+        
         title_section = ft.Column(
             spacing=4,
             controls=[
@@ -124,7 +124,7 @@ def SettingsView(page: ft.Page) -> ft.View:
             ],
         )
 
-        # 3. Cabeçalho da Seção de Idioma
+        
         section_header = ft.Column(
             spacing=6,
             controls=[
@@ -150,7 +150,7 @@ def SettingsView(page: ft.Page) -> ft.View:
             ],
         )
 
-        # 4. Cards de Opções de Idioma (Português / English)
+        
         card_pt = build_language_card(
             lang_code="pt",
             title=i18n.t("settings_lang_pt"),
@@ -165,7 +165,7 @@ def SettingsView(page: ft.Page) -> ft.View:
             sub_selected=i18n.t("settings_lang_en_selected"),
         )
 
-        # 5. Status inferior com confirmação do idioma atual
+        
         status_note = ft.Row(
             spacing=8,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -179,7 +179,7 @@ def SettingsView(page: ft.Page) -> ft.View:
             ],
         )
 
-        # 6. Card "Sobre o IRIS"
+        
         about_card = ft.Container(
             bgcolor=COLOR_CARD_BG,
             border=ft.Border.all(1.2, COLOR_CARD_BORDER),
@@ -249,7 +249,7 @@ def SettingsView(page: ft.Page) -> ft.View:
             about_card,
         ]
 
-    # Constrói o layout inicial
+    
     build_layout()
 
     return ft.View(
@@ -260,7 +260,7 @@ def SettingsView(page: ft.Page) -> ft.View:
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         controls=[
             ft.Container(
-                width=400,
+                width=min(420, getattr(page, "width", 400) or 400),
                 padding=ft.Padding.only(left=20, right=20, top=16, bottom=24),
                 content=main_column,
             )

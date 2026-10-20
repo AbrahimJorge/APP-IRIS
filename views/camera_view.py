@@ -14,13 +14,13 @@ class CameraUIController:
 
     def __init__(self, page: ft.Page):
         self.page = page
-        self.mode = "clique"  # 'clique' ou 'selecao'
+        self.mode = "clique"  
         self.camera_facing = "back"
 
-        # Serviço OpenCV
+        
         self.service = CameraService()
 
-        # Alvo e seleção (inicialmente nenhum ponto/área selecionado)
+        
         self.has_selected_color = False
         self.has_selected_area = False
         self.target_x = 0.0
@@ -28,24 +28,24 @@ class CameraUIController:
         self.drag_start = None
         self.drag_cur = None
 
-        # Rastreamento de arrasto contínuo no modo clique
+        
         self._last_drag_time = 0.0
         self._last_drag_pos = None
         self._is_drag_updating = False
         self._reticle_timer = None
 
-        # Flag para evitar sobreposição de updates de frames
+        
         self.is_frame_updating = False
 
-        # Dados da cor selecionada (ponto)
+        
         self.point_color_name = ""
         self.point_color_detail = ""
         self.point_color_hex = ""
 
-        # Dados das cores identificadas (área)
+        
         self.area_colors = []
 
-        # Referências aos controles
+        
         self.tab_clique = None
         self.tab_selecao = None
         self.badge_text = None
@@ -274,7 +274,7 @@ class CameraUIController:
 
         if self.mode == "clique":
             if not self.has_selected_color:
-                # Estado inicial limpo
+                
                 self.result_container.content = ft.Row(
                     spacing=14,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -319,7 +319,7 @@ class CameraUIController:
                     ],
                 )
             else:
-                # Cor identificada pelo toque
+                
                 self.result_container.content = ft.Row(
                     spacing=14,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -358,7 +358,7 @@ class CameraUIController:
                     ],
                 )
         else:
-            # Modo Seleção: Cores uma embaixo da outra
+            
             if not self.has_selected_area or not self.area_colors:
                 self.result_container.content = ft.Row(
                     spacing=14,
@@ -404,7 +404,7 @@ class CameraUIController:
                     ],
                 )
             else:
-                # Lista vertical: cores uma embaixo da outra
+                
                 color_rows = []
                 for item in self.area_colors:
                     color_rows.append(
@@ -484,7 +484,7 @@ def CameraView(page: ft.Page) -> ft.View:
         ctrl.stop_camera()
         page.navigate(route)
 
-    # 1. Topo: Botão Voltar + Breadcrumb
+    
     header = ft.Row(
         spacing=14,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -516,7 +516,7 @@ def CameraView(page: ft.Page) -> ft.View:
         ],
     )
 
-    # 2. Título & Subtítulo
+    
     title_section = ft.Column(
         spacing=4,
         controls=[
@@ -534,7 +534,7 @@ def CameraView(page: ft.Page) -> ft.View:
         ],
     )
 
-    # 3. Seletor de Modo (Clique vs Seleção)
+    
     ctrl.tab_clique = ft.Container(
         expand=True,
         padding=ft.Padding.symmetric(vertical=9),
@@ -575,7 +575,7 @@ def CameraView(page: ft.Page) -> ft.View:
         ),
     )
 
-    # 4. Viewport da Câmera (Real time com gapless_playback)
+    
     ctrl.camera_image = ft.Image(
         src="",
         width=360,
@@ -603,7 +603,7 @@ def CameraView(page: ft.Page) -> ft.View:
         ),
     )
 
-    # Badge Superior Esquerdo ((•)) TOQUE EM UM PONTO
+    
     ctrl.badge_text = ft.Text(
         "TOQUE EM UM PONTO",
         size=10,
@@ -627,7 +627,7 @@ def CameraView(page: ft.Page) -> ft.View:
         ),
     )
 
-    # Botão de alternar câmera frontal/traseira
+    
     ctrl.flip_button = ft.Container(
         right=14,
         top=14,
@@ -645,7 +645,7 @@ def CameraView(page: ft.Page) -> ft.View:
         ),
     )
 
-    # Mira de seleção no ponto (vazada, sem ponto central obstrutivo, com sombra sutil)
+    
     ctrl.target_ring = ft.Container(
         width=32,
         height=32,
@@ -660,7 +660,7 @@ def CameraView(page: ft.Page) -> ft.View:
         visible=False,
     )
 
-    # Caixa de seleção de área (inicia invisível)
+    
     ctrl.selection_box = ft.Container(
         border_radius=8,
         border=ft.Border.all(2.0, "#FFFFFF"),
@@ -668,7 +668,7 @@ def CameraView(page: ft.Page) -> ft.View:
         visible=False,
     )
 
-    # Pílula de instrução inferior
+    
     ctrl.instruction_text = ft.Text(
         "Toque no ponto para identificar a cor",
         size=11.5,
@@ -686,28 +686,40 @@ def CameraView(page: ft.Page) -> ft.View:
         ),
     )
 
-    # Handlers de Gestos
+    
+    def _get_coords(e):
+        pos = getattr(e, "local_position", None)
+        if pos is not None and hasattr(pos, "x") and hasattr(pos, "y"):
+            return float(pos.x), float(pos.y)
+        if hasattr(e, "local_x") and e.local_x is not None:
+            return float(e.local_x), float(e.local_y)
+        return None
+
     def on_tap_down(e: ft.TapEvent):
-        if ctrl.mode == "clique" and e.local_position:
-            ctrl.handle_tap_down(e.local_position.x, e.local_position.y)
+        coords = _get_coords(e)
+        if ctrl.mode == "clique" and coords:
+            ctrl.handle_tap_down(coords[0], coords[1])
 
     def on_tap_up(e: ft.TapEvent):
-        if ctrl.mode == "clique" and e.local_position:
-            ctrl.handle_tap_up(e.local_position.x, e.local_position.y)
+        coords = _get_coords(e)
+        if ctrl.mode == "clique" and coords:
+            ctrl.handle_tap_up(coords[0], coords[1])
 
     def on_pan_start(e: ft.DragStartEvent):
-        if e.local_position:
+        coords = _get_coords(e)
+        if coords:
             if ctrl.mode == "clique":
-                ctrl.handle_tap_down(e.local_position.x, e.local_position.y)
+                ctrl.handle_tap_down(coords[0], coords[1])
             elif ctrl.mode == "selecao":
-                ctrl.handle_pan_start(e.local_position.x, e.local_position.y)
+                ctrl.handle_pan_start(coords[0], coords[1])
 
     def on_pan_update(e: ft.DragUpdateEvent):
-        if e.local_position:
+        coords = _get_coords(e)
+        if coords:
             if ctrl.mode == "clique":
-                ctrl.handle_drag_point(e.local_position.x, e.local_position.y)
+                ctrl.handle_drag_point(coords[0], coords[1])
             elif ctrl.mode == "selecao":
-                ctrl.handle_pan_update(e.local_position.x, e.local_position.y)
+                ctrl.handle_pan_update(coords[0], coords[1])
 
     def on_pan_end(e: ft.DragEndEvent):
         if ctrl.mode == "clique":
@@ -747,7 +759,7 @@ def CameraView(page: ft.Page) -> ft.View:
         ),
     )
 
-    # 5. Card de Resultado de Cor
+    
     ctrl.result_container = ft.Container(
         bgcolor=COLOR_CARD_BG,
         border=ft.Border.all(1.2, COLOR_CARD_BORDER),
@@ -768,11 +780,11 @@ def CameraView(page: ft.Page) -> ft.View:
         color=COLOR_TEXT_MUTED,
     )
 
-    # 6. Barra de Navegação Inferior
+    
     bottom_nav = build_bottom_nav(page, active_tab="camera")
 
     body_content = ft.Container(
-        width=400,
+        width=min(420, getattr(page, "width", 400) or 400),
         padding=ft.Padding.only(left=20, right=20, top=14, bottom=6),
         content=ft.Column(
             spacing=14,
@@ -788,7 +800,7 @@ def CameraView(page: ft.Page) -> ft.View:
         ),
     )
 
-    # Inicializa o feed real da câmera
+    
     ctrl.start_camera()
 
     return ft.View(

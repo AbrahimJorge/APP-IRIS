@@ -2,6 +2,7 @@ import os
 import colorsys
 import ssl
 import pandas as pd
+
 from scipy.spatial import KDTree
 from services.i18n_service import I18nService
 from services.constants.dataset_constants import *
@@ -74,6 +75,7 @@ class ColorDatasetService:
             family = "Branco"
         elif s < 0.15:
             family = "Cinza"
+            
         # Famílias cromáticas pelo Matiz (Hue)
         elif h_deg < 15 or h_deg >= 345:
             family = "Vermelho"

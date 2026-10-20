@@ -1,4 +1,5 @@
 import flet as ft
+
 from theme import *
 from services.i18n_service import I18nService
 
@@ -19,7 +20,7 @@ def build_bottom_nav(page: ft.Page, active_tab: str = "camera") -> ft.Container:
         is_active = tab_id == active_tab
 
         if is_active:
-            # Item Ativo: Pill suave com indicador azul inferior
+            
             item = ft.Container(
                 width=130,
                 padding=ft.Padding.symmetric(vertical=8),
@@ -38,7 +39,7 @@ def build_bottom_nav(page: ft.Page, active_tab: str = "camera") -> ft.Container:
                             weight=ft.FontWeight.W_700,
                             color=COLOR_PRIMARY,
                         ),
-                        # Barra indicadora ativa
+                        
                         ft.Container(
                             width=24,
                             height=2.5,
@@ -50,7 +51,7 @@ def build_bottom_nav(page: ft.Page, active_tab: str = "camera") -> ft.Container:
                 ),
             )
         else:
-            # Item Inativo: Clicável para navegar
+            
             item = ft.GestureDetector(
                 mouse_cursor=ft.MouseCursor.CLICK,
                 on_tap=lambda _, r=route: page.navigate(r),
@@ -70,7 +71,7 @@ def build_bottom_nav(page: ft.Page, active_tab: str = "camera") -> ft.Container:
                                 weight=ft.FontWeight.W_500,
                                 color=COLOR_TEXT_MUTED,
                             ),
-                            # Espaçador invisível para manter altura uniforme
+                            
                             ft.Container(height=2.5, margin=ft.Margin.only(top=1)),
                         ],
                     ),

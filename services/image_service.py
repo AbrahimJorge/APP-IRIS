@@ -4,9 +4,10 @@ import cv2
 import base64
 from collections import Counter
 import numpy as np
+
 from services.color_dataset import ColorDatasetService
 
-# Permite execução direta do script ou importação via módulo raiz
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 class ImageService:
@@ -16,12 +17,27 @@ class ImageService:
         self.image_path = None
         self.dataset.load()
 
-    def load_image(self, file_path: str) -> dict | None:
-        """Carrega e prepara a imagem para exibição e processamento."""
-        if not file_path or not os.path.exists(file_path):
-            return None
+    def load_image(self, file_path: str = None, image_bytes: bytes = None) -> dict | None:
+        """Carrega e prepara a imagem para exibição e processamento (suporta caminho de arquivo ou bytes da memória)."""
+        img = None
+        if image_bytes is not None and len(image_bytes) > 0:
+            try:
+                nparr = np.frombuffer(image_bytes, np.uint8)
+                img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            except Exception as e:
+                print(f"Erro ao decodificar bytes de imagem: {e}")
 
-        img = cv2.imread(file_path)
+        if img is None and file_path:
+            try:
+                if os.path.exists(file_path):
+                    img = cv2.imread(file_path)
+                if img is None:
+                    with open(file_path, "rb") as f:
+                        nparr = np.frombuffer(f.read(), np.uint8)
+                        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            except Exception as e:
+                print(f"Erro ao ler imagem do arquivo {file_path}: {e}")
+
         if img is None:
             return None
 
@@ -30,7 +46,7 @@ class ImageService:
 
         h, w = img.shape[:2]
 
-        # Calcula dimensões proporcionais para o container do app (máx 360x380)
+        
         scale = min(360.0 / w, 380.0 / h, 1.0)
         display_w = max(50, int(w * scale))
         display_h = max(50, int(h * scale))
